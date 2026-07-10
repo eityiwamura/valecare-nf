@@ -1,0 +1,25 @@
+{
+  "name": "valecare-nf",
+  "version": "1.0.0",
+  "description": "Sistema de cálculo e gestão de impostos em Notas Fiscais - Valecare Medicina e Valecare Engenharia",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node scripts/seed.js",
+    "migrate": "node scripts/migrate.js",
+    "lotes:listar": "node scripts/gerenciar-lotes.js listar",
+    "lotes:excluir": "node scripts/gerenciar-lotes.js excluir",
+    "banco:zerar": "node scripts/zerar-banco.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "connect-pg-simple": "^9.0.1",
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.10",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "multer": "^2.0.1",
+    "pg": "^8.12.0",
+    "xlsx": "^0.18.5"
+  }
+}

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= typeof title !== 'undefined' ? title + ' · Valecare NF' : 'Valecare NF' %></title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <script>
+    (function(){
+      var t = localStorage.getItem('valecare-theme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark">VC</div>
+      <div class="name">Valecare NF</div>
+      <div class="sub">gestão fiscal de notas</div>
+    </div>
+    <nav class="nav">
+      <a href="/dashboard" class="<%= currentPath === '/dashboard' ? 'active' : '' %>"><span class="ico">◆</span> Dashboard</a>
+      <a href="/upload" class="<%= currentPath === '/upload' ? 'active' : '' %>"><span class="ico">⭱</span> Enviar planilha</a>
+      <a href="/notas/nova" class="<%= currentPath === '/notas/nova' ? 'active' : '' %>"><span class="ico">✎</span> Nova NF manual</a>
+      <a href="/lista" class="<%= currentPath === '/lista' ? 'active' : '' %>"><span class="ico">≡</span> Histórico de NFs</a>
+      <a href="/codigos-servico" class="<%= currentPath === '/codigos-servico' ? 'active' : '' %>"><span class="ico">🏷</span> Códigos de Serviço</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="theme-toggle">
+        <button type="button" data-theme-btn="light">Claro</button>
+        <button type="button" data-theme-btn="dark">Escuro</button>
+      </div>
+      <div class="user-row">
+        <span class="who"><%= username %></span>
+        <form method="POST" action="/logout">
+          <button class="logout-btn" type="submit">Sair</button>
+        </form>
+      </div>
+    </div>
+  </aside>
+  <main class="main">

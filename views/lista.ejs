@@ -1,0 +1,238 @@
+<%- include('partials/head', { title: 'Histórico de NFs' }) %>
+
+<%
+function fmt(n) {
+  return Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function qs(overrides) {
+  const base = Object.assign({}, filtros, { sort, dir, page }, overrides);
+  const parts = [];
+  for (const k in base) {
+    if (base[k] !== undefined && base[k] !== null && base[k] !== '') parts.push(k + '=' + encodeURIComponent(base[k]));
+  }
+  return '/lista?' + parts.join('&');
+}
+function sortLink(col, label) {
+  const nextDir = (sort === col && dir === 'asc') ? 'desc' : 'asc';
+  const arrow = sort === col ? (dir === 'asc' ? '↑' : '↓') : '';
+  return '<a href="' + qs({ sort: col, dir: nextDir, page: 1 }) + '">' + label + ' ' + arrow + '</a>';
+}
+%>
+
+<div class="page-header">
+  <div>
+    <h1>Histórico de Notas Fiscais</h1>
+    <p><%= total %> nota(s) encontrada(s)</p>
+  </div>
+  <a href="/upload" class="btn btn-primary">+ Enviar nova planilha</a>
+</div>
+
+<div id="bulk-bar" class="card" style="display:none; margin-bottom:16px; padding:14px 20px; align-items:center; justify-content:space-between;">
+  <span id="bulk-count" style="font-weight:700;"></span>
+  <button type="button" class="btn btn-ghost" id="bulk-delete-btn" style="border-color:var(--tax); color:var(--tax);">🗑 Excluir selecionadas</button>
+</div>
+
+<form method="GET" action="/lista" class="filters-form card">
+  <div class="field" style="margin:0;">
+    <label>Empresa</label>
+    <select name="empresa">
+      <option value="">Todas</option>
+      <% empresas.forEach(function(e){ %>
+        <option value="<%= e.id %>" <%= String(filtros.empresa) === String(e.id) ? 'selected' : '' %>><%= e.nome %></option>
+      <% }) %>
+    </select>
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Cliente</label>
+    <input type="text" name="cliente" value="<%= filtros.cliente || '' %>" placeholder="Buscar cliente..." />
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Cidade</label>
+    <input type="text" name="cidade" value="<%= filtros.cidade || '' %>" placeholder="Buscar cidade..." />
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Simples Nacional</label>
+    <select name="simples">
+      <option value="">Todos</option>
+      <option value="sim" <%= filtros.simples === 'sim' ? 'selected' : '' %>>Simples Nacional</option>
+      <option value="nao" <%= filtros.simples === 'nao' ? 'selected' : '' %>>Não / Pessoa Física</option>
+    </select>
+  </div>
+  <div class="field" style="margin:0;">
+    <label>De</label>
+    <input type="date" name="dataDe" value="<%= filtros.dataDe || '' %>" />
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Até</label>
+    <input type="date" name="dataAte" value="<%= filtros.dataAte || '' %>" />
+  </div>
+  <div class="actions" style="grid-column: 1 / -1;">
+    <button class="btn btn-primary" type="submit">Filtrar</button>
+    <a class="btn btn-ghost" href="/lista">Limpar filtros</a>
+  </div>
+</form>
+
+<div class="card" style="padding: 0; overflow-x: auto;">
+  <% if (!notas.length) { %>
+    <div class="empty-state">
+      <div class="icon">🗂️</div>
+      <div>Nenhuma nota encontrada para os filtros aplicados.</div>
+    </div>
+  <% } else { %>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:32px;"><input type="checkbox" id="select-all" /></th>
+        <th><%- sortLink('data_emissao', 'Emissão') %></th>
+        <th><%- sortLink('vencimento', 'Venc.') %></th>
+        <th><%- sortLink('cliente', 'Cliente') %></th>
+        <th><%- sortLink('cidade', 'Cidade') %></th>
+        <th>Regime</th>
+        <th><%- sortLink('valor', 'Valor') %></th>
+        <th class="num">PIS</th>
+        <th class="num">COFINS</th>
+        <th class="num">CSLL</th>
+        <th class="num">IRPJ</th>
+        <th><%- sortLink('iss', 'ISS') %></th>
+        <th><%- sortLink('valor_liquido', 'Líquido') %></th>
+        <th title="Proporção líquido x impostos">Proporção</th>
+        <th style="width:40px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% notas.forEach(function(n){
+        const impostos = Number(n.pis) + Number(n.cofins) + Number(n.csll) + Number(n.irpj) + Number(n.iss);
+        const pctLiquido = n.valor > 0 ? Math.max(0, Math.min(100, (n.valor_liquido / n.valor) * 100)) : 100;
+        const simplesNorm = (n.simples_nacional || '').toLowerCase();
+        let badgeClass = 'badge-nao', badgeLabel = 'Não';
+        if (simplesNorm.includes('simples')) { badgeClass = 'badge-simples'; badgeLabel = 'Simples'; }
+        else if (simplesNorm.includes('fisica') || simplesNorm.includes('física')) { badgeClass = 'badge-pf'; badgeLabel = 'P. Física'; }
+      %>
+      <tr data-nf-id="<%= n.id %>">
+        <td><input type="checkbox" class="row-check" value="<%= n.id %>" /></td>
+        <td class="text-col"><%= n.data_emissao ? new Date(n.data_emissao).toLocaleDateString('pt-BR', {timeZone:'UTC'}) : '-' %></td>
+        <td class="text-col"><%= n.vencimento ? new Date(n.vencimento).toLocaleDateString('pt-BR', {timeZone:'UTC'}) : '-' %></td>
+        <td class="text-col"><%= n.cliente %><br/><span style="color:var(--text-muted); font-size:11px; font-family:var(--font-mono);"><%= n.empresa_nome %></span></td>
+        <td class="text-col"><%= n.cidade %></td>
+        <td class="text-col"><span class="badge <%= badgeClass %>"><%= badgeLabel %></span></td>
+        <td class="num"><%= fmt(n.valor) %></td>
+        <td class="num <%= n.pis > 0 ? 'tax-num' : '' %>"><%= fmt(n.pis) %></td>
+        <td class="num <%= n.cofins > 0 ? 'tax-num' : '' %>"><%= fmt(n.cofins) %></td>
+        <td class="num <%= n.csll > 0 ? 'tax-num' : '' %>"><%= fmt(n.csll) %></td>
+        <td class="num <%= n.irpj > 0 ? 'tax-num' : '' %>"><%= fmt(n.irpj) %></td>
+        <td class="num <%= n.iss > 0 ? 'tax-num' : '' %>"><%= fmt(n.iss) %></td>
+        <td class="num liquido-num"><%= fmt(n.valor_liquido) %></td>
+        <td>
+          <div class="ratio-bar" title="<%= pctLiquido.toFixed(0) %>% líquido">
+            <div class="seg-liquido" style="width: <%= pctLiquido %>%;"></div>
+            <div class="seg-imposto" style="width: <%= 100 - pctLiquido %>%;"></div>
+          </div>
+        </td>
+        <td>
+          <button type="button" class="row-delete-btn" data-id="<%= n.id %>" title="Excluir esta NF"
+            style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:15px;">🗑</button>
+        </td>
+      </tr>
+      <% }) %>
+    </tbody>
+    <tfoot>
+      <tr class="totals-row">
+        <td></td>
+        <td colspan="5" class="text-col">Totais da página filtrada</td>
+        <td class="num"><%= fmt(totals.valor) %></td>
+        <td class="num"><%= fmt(totals.pis) %></td>
+        <td class="num"><%= fmt(totals.cofins) %></td>
+        <td class="num"><%= fmt(totals.csll) %></td>
+        <td class="num"><%= fmt(totals.irpj) %></td>
+        <td class="num"><%= fmt(totals.iss) %></td>
+        <td class="num"><%= fmt(totals.valor_liquido) %></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+  <% } %>
+</div>
+
+<% if (totalPages > 1) { %>
+<div class="pagination">
+  <span>Página <%= page %> de <%= totalPages %></span>
+  <div class="pages">
+    <% if (page > 1) { %><a href="<%= qs({ page: page - 1 }) %>">← Anterior</a><% } %>
+    <% for (let p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p++) { %>
+      <% if (p === page) { %><span class="current"><%= p %></span><% } else { %><a href="<%= qs({ page: p }) %>"><%= p %></a><% } %>
+    <% } %>
+    <% if (page < totalPages) { %><a href="<%= qs({ page: page + 1 }) %>">Próxima →</a><% } %>
+  </div>
+</div>
+<% } %>
+
+<script>
+  const selectAll = document.getElementById('select-all');
+  const rowChecks = () => Array.from(document.querySelectorAll('.row-check'));
+  const bulkBar = document.getElementById('bulk-bar');
+  const bulkCount = document.getElementById('bulk-count');
+  const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+
+  function syncBulkBar() {
+    const checked = rowChecks().filter(c => c.checked);
+    if (checked.length > 0) {
+      bulkBar.style.display = 'flex';
+      bulkCount.textContent = checked.length === 1
+        ? '1 nota selecionada'
+        : checked.length + ' notas selecionadas';
+    } else {
+      bulkBar.style.display = 'none';
+    }
+    if (selectAll) {
+      selectAll.checked = checked.length > 0 && checked.length === rowChecks().length;
+    }
+  }
+
+  rowChecks().forEach(cb => cb.addEventListener('change', syncBulkBar));
+
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      rowChecks().forEach(cb => { cb.checked = selectAll.checked; });
+      syncBulkBar();
+    });
+  }
+
+  async function excluirNotas(ids) {
+    const resp = await fetch('/lista/excluir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      alert(data.erro || 'Erro ao excluir. Tente novamente.');
+      return;
+    }
+    window.location.reload();
+  }
+
+  document.querySelectorAll('.row-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      if (confirm('Excluir esta nota fiscal? Essa ação não pode ser desfeita.')) {
+        excluirNotas([id]);
+      }
+    });
+  });
+
+  if (bulkDeleteBtn) {
+    bulkDeleteBtn.addEventListener('click', () => {
+      const ids = rowChecks().filter(c => c.checked).map(c => c.value);
+      if (!ids.length) return;
+      const msg = ids.length === 1
+        ? 'Excluir a nota fiscal selecionada? Essa ação não pode ser desfeita.'
+        : `Excluir as ${ids.length} notas fiscais selecionadas? Essa ação não pode ser desfeita.`;
+      if (confirm(msg)) {
+        excluirNotas(ids);
+      }
+    });
+  }
+</script>
+
+<%- include('partials/foot') %>

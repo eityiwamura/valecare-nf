@@ -1,0 +1,108 @@
+<%- include('partials/head', { title: 'Enviar planilha' }) %>
+
+<div class="page-header">
+  <div>
+    <h1>Enviar planilha de NFs</h1>
+    <p>Envie a planilha do mês (Simples Nacional, Cidade, Cliente, CNPJ, Descrição, Venc., Valor) e o sistema calcula os impostos automaticamente.</p>
+  </div>
+</div>
+
+<% if (erro) { %>
+  <div class="alert alert-error"><%= erro %></div>
+<% } %>
+<% if (sucesso) { %>
+  <div class="alert alert-success">
+    Planilha processada com sucesso! <%= sucesso.linhas %> nota(s) fiscal(is) calculada(s) e salva(s).
+    <a href="/lista?lote=<%= sucesso.lote %>" style="text-decoration: underline; font-weight: 700;">Ver notas deste lote →</a>
+  </div>
+<% } %>
+
+<div class="grid cols-2" style="align-items:start;">
+  <div class="card">
+    <form method="POST" action="/upload" enctype="multipart/form-data" id="upload-form">
+      <div class="field">
+        <label for="empresaId">Empresa emissora</label>
+        <select name="empresaId" id="empresaId" required>
+          <option value="">Selecione...</option>
+          <% empresas.forEach(function(e){ %>
+            <option value="<%= e.id %>" data-slug="<%= e.slug %>" data-iss="<%= configMap[e.id] %>"><%= e.nome %></option>
+          <% }) %>
+        </select>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="issAliquota">Alíquota de ISS vigente (%)</label>
+          <input type="text" name="issAliquota" id="issAliquota" placeholder="Ex: 2,00" required />
+        </div>
+        <div class="field">
+          <label for="dataEmissao">Data de emissão do lote</label>
+          <input type="date" name="dataEmissao" id="dataEmissao" value="<%= hoje %>" required />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Planilha (.xlsx)</label>
+        <div class="upload-drop" id="drop-zone">
+          <div class="icon">📄</div>
+          <div>Arraste o arquivo aqui ou clique para selecionar</div>
+          <div class="filename" id="filename"></div>
+        </div>
+        <input type="file" name="planilha" id="planilha" accept=".xlsx,.xls" style="display:none;" required />
+      </div>
+
+      <button class="btn btn-primary" type="submit" style="width:100%; margin-top:8px;">Processar e calcular impostos</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Regras aplicadas</h3>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      <strong>Valecare Medicina</strong> — clientes do Simples Nacional não pagam PIS/COFINS/CSLL,
+      mas pagam IRPJ normalmente. Pessoa Física é isenta de todos os quatro. Para os demais
+      clientes (Não), PIS é sempre calculado (0,65%); COFINS (3%) e CSLL (1%) só aparecem
+      na nota se a soma dos três (PIS+COFINS+CSLL) para o mesmo cliente (CNPJ), no mesmo
+      envio, ultrapassar R$10,00. O IRPJ (1,5%) segue o mesmo limite de R$10, mas avaliado
+      isoladamente.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      <strong>Valecare Engenharia</strong> — PIS, COFINS, CSLL e IRPJ sempre zerados.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      <strong>ISS (ambas)</strong> — só incide quando a cidade é Taubaté e o valor da nota é maior que R$600,00,
+      usando a alíquota informada acima.
+    </p>
+  </div>
+</div>
+
+<script>
+  const empresaSelect = document.getElementById('empresaId');
+  const issInput = document.getElementById('issAliquota');
+  empresaSelect.addEventListener('change', () => {
+    const opt = empresaSelect.selectedOptions[0];
+    if (opt && opt.dataset.iss) issInput.value = Number(opt.dataset.iss).toLocaleString('pt-BR', {minimumFractionDigits:2});
+  });
+
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('planilha');
+  const filenameEl = document.getElementById('filename');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) filenameEl.textContent = fileInput.files[0].name;
+  });
+  ['dragover', 'dragenter'].forEach(evt => dropZone.addEventListener(evt, (e) => {
+    e.preventDefault(); dropZone.classList.add('dragover');
+  }));
+  ['dragleave', 'drop'].forEach(evt => dropZone.addEventListener(evt, (e) => {
+    e.preventDefault(); dropZone.classList.remove('dragover');
+  }));
+  dropZone.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files[0]) {
+      fileInput.files = e.dataTransfer.files;
+      filenameEl.textContent = e.dataTransfer.files[0].name;
+    }
+  });
+</script>
+
+<%- include('partials/foot') %>

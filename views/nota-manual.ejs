@@ -1,0 +1,231 @@
+<%- include('partials/head', { title: 'Nova NF manual' }) %>
+
+<div class="page-header">
+  <div>
+    <h1>Lançar NF manual</h1>
+    <p>Digite o CNPJ, o sistema busca no cadastro (ou na Receita Federal se for a primeira vez) e calcula os impostos.</p>
+  </div>
+</div>
+
+<% if (erro) { %>
+  <div class="alert alert-error"><%= erro %></div>
+<% } %>
+<% if (sucesso) { %>
+  <div class="alert alert-success">
+    NF lançada com sucesso! <a href="/lista" style="text-decoration: underline; font-weight: 700;">Ver no histórico →</a>
+  </div>
+<% } %>
+
+<div class="grid cols-2" style="align-items:start;">
+  <div class="card">
+    <form method="POST" action="/notas/nova" id="manual-form">
+      <div class="field">
+        <label for="empresaId">Empresa emissora</label>
+        <select name="empresaId" id="empresaId" required>
+          <option value="">Selecione...</option>
+          <% empresas.forEach(function(e){ %>
+            <option value="<%= e.id %>" data-iss="<%= configMap[e.id] %>"><%= e.nome %></option>
+          <% }) %>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Tipo de cliente</label>
+        <div style="display:flex; gap:16px; padding-top:4px;">
+          <label style="display:flex; align-items:center; gap:6px; font-weight:500; color:var(--text);">
+            <input type="radio" name="tipoPessoa" value="cnpj" checked style="width:auto;" /> CNPJ (pessoa jurídica)
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; font-weight:500; color:var(--text);">
+            <input type="radio" name="tipoPessoa" value="cpf" style="width:auto;" /> CPF (pessoa física)
+          </label>
+        </div>
+      </div>
+
+      <div class="field" id="campo-cnpj">
+        <label for="cnpj">CNPJ</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" name="cnpj" id="cnpj" placeholder="00.000.000/0000-00" />
+          <button type="button" class="btn btn-ghost" id="btn-buscar-cnpj" style="white-space:nowrap;">🔍 Buscar</button>
+        </div>
+        <div id="cnpj-status" style="font-size:12px; margin-top:6px; color:var(--text-muted);"></div>
+      </div>
+
+      <div class="field">
+        <label for="cliente">Cliente (razão social)</label>
+        <input type="text" name="cliente" id="cliente" required />
+      </div>
+
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="cidade">Cidade</label>
+          <input type="text" name="cidade" id="cidade" required />
+        </div>
+        <div class="field" id="campo-simples">
+          <label for="simplesNacional">Regime tributário</label>
+          <select name="simplesNacional" id="simplesNacional">
+            <option value="Não">Não (regime normal)</option>
+            <option value="Simples Nacional">Simples Nacional</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="codigoServico">Código de serviço</label>
+          <select name="codigoServico" id="codigoServico">
+            <option value="">Selecione a empresa primeiro...</option>
+          </select>
+          <div style="font-size:12px; margin-top:6px;">
+            <a href="/codigos-servico" style="color:var(--primary); text-decoration:underline;">+ Cadastrar novo código</a>
+          </div>
+        </div>
+        <div class="field">
+          <label for="valor">Valor da NF (R$)</label>
+          <input type="text" name="valor" id="valor" placeholder="Ex: 1.250,00" required />
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="descricao">Descrição</label>
+        <input type="text" name="descricao" id="descricao" placeholder="Ex: Mensalidade, Ex. Clínico, etc." />
+      </div>
+
+      <div class="grid cols-3">
+        <div class="field">
+          <label for="vencimento">Vencimento</label>
+          <input type="date" name="vencimento" id="vencimento" />
+        </div>
+        <div class="field">
+          <label for="dataEmissao">Data de emissão</label>
+          <input type="date" name="dataEmissao" id="dataEmissao" value="<%= hoje %>" required />
+        </div>
+        <div class="field">
+          <label for="issAliquota">Alíquota de ISS (%)</label>
+          <input type="text" name="issAliquota" id="issAliquota" placeholder="Ex: 2,00" required />
+        </div>
+      </div>
+
+      <button class="btn btn-primary" type="submit" style="width:100%; margin-top:8px;">Salvar NF</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Como funciona</h3>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      1. Escolha CNPJ ou CPF. Pra CNPJ, digite o número e clique em <strong>Buscar</strong>:
+      o sistema procura primeiro no seu cadastro local; se não achar, consulta a Receita
+      Federal (BrasilAPI) e já salva o cliente pra próxima vez ser instantâneo.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      2. Cliente, cidade e regime tributário vêm preenchidos automaticamente, mas você
+      pode corrigir antes de salvar.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      3. O limite de R$10 (PIS+COFINS+CSLL e IRPJ) considera <strong>todas</strong> as NFs
+      do mesmo cliente na mesma data de emissão — inclusive as que vieram de upload de
+      planilha. Lançar uma NF manual pode alterar o valor de impostos de NFs já
+      existentes desse mesmo cliente/dia (pra cima ou pra baixo).
+    </p>
+  </div>
+</div>
+
+<script>
+  const CODIGOS_SERVICO = <%- JSON.stringify(codigos) %>;
+
+  const empresaSelect = document.getElementById('empresaId');
+  const issInput = document.getElementById('issAliquota');
+  const codigoSelect = document.getElementById('codigoServico');
+
+  function popularCodigos(empresaId) {
+    const opcoes = CODIGOS_SERVICO.filter(c => String(c.empresa_id) === String(empresaId));
+    if (!empresaId) {
+      codigoSelect.innerHTML = '<option value="">Selecione a empresa primeiro...</option>';
+      return;
+    }
+    if (!opcoes.length) {
+      codigoSelect.innerHTML = '<option value="">Nenhum código cadastrado para esta empresa</option>';
+      return;
+    }
+    codigoSelect.innerHTML = '<option value="">Selecione...</option>' +
+      opcoes.map(c => `<option value="${c.codigo}">${c.codigo}${c.descricao ? ' — ' + c.descricao : ''}</option>`).join('');
+  }
+
+  empresaSelect.addEventListener('change', () => {
+    const opt = empresaSelect.selectedOptions[0];
+    if (opt && opt.dataset.iss) issInput.value = Number(opt.dataset.iss).toLocaleString('pt-BR', {minimumFractionDigits:2});
+    popularCodigos(empresaSelect.value);
+  });
+  popularCodigos(empresaSelect.value);
+
+  const radios = document.querySelectorAll('input[name="tipoPessoa"]');
+  const campoCnpj = document.getElementById('campo-cnpj');
+  const campoSimples = document.getElementById('campo-simples');
+  const cnpjInput = document.getElementById('cnpj');
+  const simplesSelect = document.getElementById('simplesNacional');
+
+  function syncTipoPessoa() {
+    const tipo = document.querySelector('input[name="tipoPessoa"]:checked').value;
+    if (tipo === 'cpf') {
+      campoCnpj.style.display = 'none';
+      campoSimples.style.display = 'none';
+      cnpjInput.required = false;
+    } else {
+      campoCnpj.style.display = '';
+      campoSimples.style.display = '';
+    }
+  }
+  radios.forEach(r => r.addEventListener('change', syncTipoPessoa));
+  syncTipoPessoa();
+
+  const btnBuscar = document.getElementById('btn-buscar-cnpj');
+  const cnpjStatus = document.getElementById('cnpj-status');
+  const clienteInput = document.getElementById('cliente');
+  const cidadeInput = document.getElementById('cidade');
+
+  btnBuscar.addEventListener('click', async () => {
+    const cnpj = cnpjInput.value.replace(/\D/g, '');
+    if (cnpj.length !== 14) {
+      cnpjStatus.textContent = 'CNPJ precisa ter 14 dígitos.';
+      cnpjStatus.style.color = 'var(--tax)';
+      return;
+    }
+    btnBuscar.disabled = true;
+    btnBuscar.textContent = 'Buscando...';
+    cnpjStatus.textContent = '';
+    try {
+      const resp = await fetch('/api/clientes/buscar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnpj })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        cnpjStatus.textContent = data.erro || 'Erro ao buscar CNPJ.';
+        cnpjStatus.style.color = 'var(--tax)';
+        return;
+      }
+      const c = data.cliente;
+      clienteInput.value = c.razao_social || '';
+      cidadeInput.value = c.cidade || '';
+      simplesSelect.value = c.simples_nacional === 'Simples Nacional' ? 'Simples Nacional' : 'Não';
+      if (c.fonte === 'cadastro') {
+        cnpjStatus.textContent = '✓ Encontrado no cadastro local.';
+        cnpjStatus.style.color = 'var(--primary)';
+      } else if (c.regimeConhecido === false) {
+        cnpjStatus.textContent = '✓ Cliente e cidade consultados, mas confirme o regime tributário (Simples Nacional) manualmente — fonte alternativa não confirma isso.';
+        cnpjStatus.style.color = 'var(--tax)';
+      } else {
+        cnpjStatus.textContent = '✓ Consultado na Receita Federal e salvo no cadastro.';
+        cnpjStatus.style.color = 'var(--primary)';
+      }
+    } catch (e) {
+      cnpjStatus.textContent = 'Erro de conexão ao buscar o CNPJ.';
+      cnpjStatus.style.color = 'var(--tax)';
+    } finally {
+      btnBuscar.disabled = false;
+      btnBuscar.textContent = '🔍 Buscar';
+    }
+  });
+</script>
+
+<%- include('partials/foot') %>

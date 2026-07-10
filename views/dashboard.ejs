@@ -1,0 +1,147 @@
+<%- include('partials/head', { title: 'Dashboard' }) %>
+
+<%
+function fmt(n) {
+  return Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+%>
+
+<div class="page-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p>Visão geral de quanto foi emitido em NFs e quanto está sendo pago de impostos.</p>
+  </div>
+</div>
+
+<form method="GET" action="/dashboard" class="filters-form card" style="grid-template-columns: repeat(4, 1fr);">
+  <div class="field" style="margin:0;">
+    <label>Empresa</label>
+    <select name="empresa">
+      <option value="">Todas</option>
+      <% empresas.forEach(function(e){ %>
+        <option value="<%= e.id %>" <%= String(filtros.empresa) === String(e.id) ? 'selected' : '' %>><%= e.nome %></option>
+      <% }) %>
+    </select>
+  </div>
+  <div class="field" style="margin:0;">
+    <label>De</label>
+    <input type="date" name="dataDe" value="<%= filtros.dataDe || '' %>" />
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Até</label>
+    <input type="date" name="dataAte" value="<%= filtros.dataAte || '' %>" />
+  </div>
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Filtrar</button>
+    <a class="btn btn-ghost" href="/dashboard">Limpar</a>
+  </div>
+</form>
+
+<div class="grid cols-4" style="margin-bottom: 24px;">
+  <div class="card stat-card">
+    <span class="label">NFs emitidas</span>
+    <span class="value"><%= resumo.qtd %></span>
+    <span class="hint">no período filtrado</span>
+  </div>
+  <div class="card stat-card">
+    <span class="label">Valor bruto emitido</span>
+    <span class="value primary-color"><%= fmt(resumo.valor) %></span>
+    <span class="hint">soma de todas as NFs</span>
+  </div>
+  <div class="card stat-card">
+    <span class="label">Total de impostos</span>
+    <span class="value tax-color"><%= fmt(resumo.total_impostos) %></span>
+    <span class="hint">PIS + COFINS + CSLL + IRPJ + ISS</span>
+  </div>
+  <div class="card stat-card">
+    <span class="label">Valor líquido</span>
+    <span class="value primary-color"><%= fmt(resumo.valor_liquido) %></span>
+    <span class="hint">após impostos</span>
+  </div>
+</div>
+
+<div class="grid cols-2" style="margin-bottom: 24px;">
+  <div class="card chart-card">
+    <h3 style="margin-top:0;">Emitido x Impostos por mês</h3>
+    <canvas id="chartMes"></canvas>
+  </div>
+  <div class="card chart-card">
+    <h3 style="margin-top:0;">Composição dos impostos</h3>
+    <canvas id="chartImpostos"></canvas>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Por empresa</h3>
+  <table>
+    <thead>
+      <tr><th>Empresa</th><th class="num">NFs</th><th class="num">Valor emitido</th><th class="num">Impostos</th><th class="num">% impostos</th></tr>
+    </thead>
+    <tbody>
+      <% porEmpresa.forEach(function(e){ %>
+        <tr>
+          <td class="text-col"><%= e.empresa %></td>
+          <td class="num"><%= e.qtd %></td>
+          <td class="num"><%= fmt(e.valor) %></td>
+          <td class="num tax-num"><%= fmt(e.impostos) %></td>
+          <td class="num"><%= e.valor > 0 ? ((e.impostos / e.valor) * 100).toFixed(1) : '0.0' %>%</td>
+        </tr>
+      <% }) %>
+      <% if (!porEmpresa.length) { %>
+        <tr><td colspan="5" class="empty-state">Nenhum dado no período.</td></tr>
+      <% } %>
+    </tbody>
+  </table>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script>
+  const porMes = <%- porMes %>;
+  const impostosBreakdown = <%- impostosBreakdown %>;
+
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  const primary = cssVar('--primary') || '#1F7A5C';
+  const tax = cssVar('--tax') || '#B5502B';
+  const textMuted = cssVar('--text-muted') || '#5C6D64';
+  const border = cssVar('--border') || '#DCE7E0';
+
+  new Chart(document.getElementById('chartMes'), {
+    type: 'bar',
+    data: {
+      labels: porMes.map(m => m.mes),
+      datasets: [
+        { label: 'Valor emitido', data: porMes.map(m => m.valor), backgroundColor: primary, borderRadius: 6 },
+        { label: 'Impostos', data: porMes.map(m => m.impostos), backgroundColor: tax, borderRadius: 6 }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: textMuted, font: { family: 'Urbanist' } } } },
+      scales: {
+        x: { ticks: { color: textMuted }, grid: { color: border } },
+        y: { ticks: { color: textMuted }, grid: { color: border } }
+      }
+    }
+  });
+
+  new Chart(document.getElementById('chartImpostos'), {
+    type: 'doughnut',
+    data: {
+      labels: impostosBreakdown.map(i => i.nome),
+      datasets: [{
+        data: impostosBreakdown.map(i => i.valor),
+        backgroundColor: ['#1F7A5C', '#33C08A', '#8FA89B', '#E0A96D', '#B5502B'],
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom', labels: { color: textMuted, font: { family: 'Urbanist' } } } }
+    }
+  });
+</script>
+
+<%- include('partials/foot') %>

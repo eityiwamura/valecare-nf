@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Entrar · Valecare NF</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <script>
+    (function(){
+      var t = localStorage.getItem('valecare-theme') || 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
+</head>
+<body>
+  <div class="login-shell">
+    <div class="card login-card">
+      <div class="brand">
+        <div class="mark" style="margin: 0 auto 10px;">VC</div>
+        <div class="name">Valecare NF</div>
+        <div class="sub">gestão fiscal de notas</div>
+      </div>
+      <% if (erro) { %>
+        <div class="alert alert-error"><%= erro %></div>
+      <% } %>
+      <form method="POST" action="/login">
+        <div class="field">
+          <label for="username">Usuário</label>
+          <input type="text" id="username" name="username" required autofocus />
+        </div>
+        <div class="field">
+          <label for="password">Senha</label>
+          <input type="password" id="password" name="password" required />
+        </div>
+        <button class="btn btn-primary" type="submit" style="width:100%;">Entrar</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
