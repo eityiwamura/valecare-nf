@@ -1,0 +1,93 @@
+<%- include('partials/head', { title: 'NBS' }) %>
+
+<div class="page-header">
+  <div>
+    <p style="margin:0 0 4px; font-size:13px; color:var(--text-muted);">
+      <a href="/codigos-servico" style="color:var(--primary);">Códigos de Serviço</a> ›
+      <%= codigoServico.empresa_nome %> · <%= codigoServico.codigo %>
+    </p>
+    <h1>NBS — <%= codigoServico.codigo %><% if (codigoServico.descricao) { %> <span style="color:var(--text-muted); font-weight:500;">(<%= codigoServico.descricao %>)</span><% } %></h1>
+    <p>Cadastre os NBS (Nomenclatura Brasileira de Serviços) vinculados a este código de serviço.</p>
+  </div>
+</div>
+
+<% if (erro) { %>
+  <div class="alert alert-error"><%= erro %></div>
+<% } %>
+<% if (sucesso) { %>
+  <div class="alert alert-success">NBS salvo com sucesso!</div>
+<% } %>
+
+<div class="grid cols-2" style="align-items:start;">
+  <div class="card">
+    <h3 style="margin-top:0;">Novo NBS</h3>
+    <form method="POST" action="/nbs">
+      <input type="hidden" name="codigoServicoId" value="<%= codigoServico.id %>" />
+      <div class="field">
+        <label for="codigo">Código NBS</label>
+        <input type="text" name="codigo" id="codigo" placeholder="Ex: 1.0901.10.00" required />
+      </div>
+      <div class="field">
+        <label for="descricao">Descrição</label>
+        <input type="text" name="descricao" id="descricao" placeholder="Ex: Serviços médicos" />
+      </div>
+      <button class="btn btn-primary" type="submit" style="width:100%;">Salvar NBS</button>
+    </form>
+  </div>
+
+  <div class="card" style="padding:0; overflow-x:auto;">
+    <% if (!nbsList.length) { %>
+      <div class="empty-state">
+        <div class="icon">🏷️</div>
+        <div>Nenhum NBS cadastrado para este código ainda.</div>
+      </div>
+    <% } else { %>
+      <table>
+        <thead>
+          <tr>
+            <th>Código NBS</th>
+            <th>Descrição</th>
+            <th>Indicadores</th>
+            <th style="width:40px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% nbsList.forEach(function(n){ %>
+          <tr data-nbs-id="<%= n.id %>">
+            <td class="text-col" style="font-family:var(--font-mono); font-weight:700;"><%= n.codigo %></td>
+            <td class="text-col"><%= n.descricao || '-' %></td>
+            <td class="text-col">
+              <a href="/nbs/<%= n.id %>/indicadores" style="color:var(--primary); text-decoration:underline;">
+                <%= n.total_indicadores %> indicador(es) →
+              </a>
+            </td>
+            <td>
+              <button type="button" class="nbs-delete-btn" data-id="<%= n.id %>" title="Excluir"
+                style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:15px;">🗑</button>
+            </td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } %>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.nbs-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Excluir este NBS? Isso também remove os indicadores e classificações vinculados a ele.')) return;
+      const id = btn.dataset.id;
+      const resp = await fetch('/nbs/excluir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) window.location.reload();
+      else alert(data.erro || 'Erro ao excluir.');
+    });
+  });
+</script>
+
+<%- include('partials/foot') %>

@@ -32,6 +32,11 @@ async function buscarClienteBrasilAPI(cnpjDigits) {
   return {
     razaoSocial: data.razao_social || '',
     nomeFantasia: data.nome_fantasia || '',
+    logradouro: data.logradouro || '',
+    numero: data.numero || '',
+    complemento: data.complemento || '',
+    bairro: data.bairro || '',
+    cep: data.cep || '',
     cidade: data.municipio || '',
     uf: data.uf || '',
     simplesNacional: optanteSimples ? 'Simples Nacional' : 'Não',
@@ -68,6 +73,11 @@ async function buscarClienteOpenCNPJ(cnpjDigits) {
   return {
     razaoSocial: data.razao_social || '',
     nomeFantasia: data.nome_fantasia || '',
+    logradouro: data.logradouro || '',
+    numero: data.numero || '',
+    complemento: data.complemento || '',
+    bairro: data.bairro || '',
+    cep: data.cep || '',
     cidade: data.municipio || '',
     uf: data.uf || '',
     simplesNacional: 'Não', // esta fonte não confirma o Simples - revisar manualmente
@@ -97,16 +107,22 @@ async function buscarClienteLocal(pool, cnpjDigits) {
 
 async function salvarCliente(pool, cnpjDigits, dados, fonte) {
   const { rows } = await pool.query(
-    `INSERT INTO clientes (cnpj, razao_social, nome_fantasia, cidade, uf, simples_nacional, situacao_cadastral, fonte, atualizado_em)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
+    `INSERT INTO clientes (cnpj, razao_social, nome_fantasia, logradouro, numero, complemento, bairro, cep, cidade, uf, simples_nacional, situacao_cadastral, fonte, atualizado_em)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
      ON CONFLICT (cnpj) DO UPDATE SET
-       razao_social = $2, nome_fantasia = $3, cidade = $4, uf = $5,
-       simples_nacional = $6, situacao_cadastral = $7, fonte = $8, atualizado_em = now()
+       razao_social = $2, nome_fantasia = $3, logradouro = $4, numero = $5, complemento = $6,
+       bairro = $7, cep = $8, cidade = $9, uf = $10, simples_nacional = $11, situacao_cadastral = $12,
+       fonte = $13, atualizado_em = now()
      RETURNING *`,
     [
       cnpjDigits,
       dados.razaoSocial || null,
       dados.nomeFantasia || null,
+      dados.logradouro || null,
+      dados.numero || null,
+      dados.complemento || null,
+      dados.bairro || null,
+      dados.cep || null,
       dados.cidade || null,
       dados.uf || null,
       dados.simplesNacional || null,

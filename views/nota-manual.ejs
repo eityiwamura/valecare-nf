@@ -69,6 +69,29 @@
         </div>
       </div>
 
+      <div class="field" id="campo-endereco">
+        <label>Endereço completo <span style="font-weight:400; color:var(--text-muted);">(opcional agora, útil pra emissão de NF futuramente)</span></label>
+        <div class="grid cols-4" style="gap:8px;">
+          <div class="field" style="grid-column: span 2; margin-bottom:0;">
+            <input type="text" name="logradouro" id="logradouro" placeholder="Logradouro" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="numero" id="numero" placeholder="Número" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="cep" id="cep" placeholder="CEP" />
+          </div>
+        </div>
+        <div class="grid cols-2" style="gap:8px; margin-top:8px;">
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="bairro" id="bairro" placeholder="Bairro" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="complemento" id="complemento" placeholder="Complemento" />
+          </div>
+        </div>
+      </div>
+
       <div class="grid cols-2">
         <div class="field">
           <label for="codigoServico">Código de serviço</label>
@@ -82,6 +105,27 @@
         <div class="field">
           <label for="valor">Valor da NF (R$)</label>
           <input type="text" name="valor" id="valor" placeholder="Ex: 1.250,00" required />
+        </div>
+      </div>
+
+      <div class="grid cols-3">
+        <div class="field">
+          <label for="nbs">NBS</label>
+          <select name="nbs" id="nbs" disabled>
+            <option value="">Selecione o código de serviço primeiro...</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="indicadorOperacao">Indicador de operação</label>
+          <select name="indicadorOperacao" id="indicadorOperacao" disabled>
+            <option value="">Selecione o NBS primeiro...</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="classificacaoTributaria">Classificação tributária</label>
+          <select name="classificacaoTributaria" id="classificacaoTributaria" disabled>
+            <option value="">Selecione o indicador primeiro...</option>
+          </select>
         </div>
       </div>
 
@@ -131,23 +175,75 @@
 
 <script>
   const CODIGOS_SERVICO = <%- JSON.stringify(codigos) %>;
+  const NBS_LIST = <%- JSON.stringify(nbsList) %>;
+  const INDICADORES = <%- JSON.stringify(indicadores) %>;
+  const CLASSIFICACOES = <%- JSON.stringify(classificacoes) %>;
 
   const empresaSelect = document.getElementById('empresaId');
   const issInput = document.getElementById('issAliquota');
   const codigoSelect = document.getElementById('codigoServico');
+  const nbsSelect = document.getElementById('nbs');
+  const indicadorSelect = document.getElementById('indicadorOperacao');
+  const classificacaoSelect = document.getElementById('classificacaoTributaria');
 
-  function popularCodigos(empresaId) {
-    const opcoes = CODIGOS_SERVICO.filter(c => String(c.empresa_id) === String(empresaId));
-    if (!empresaId) {
-      codigoSelect.innerHTML = '<option value="">Selecione a empresa primeiro...</option>';
+  function popularSelect(select, opcoes, placeholderVazio, placeholderPreenchido) {
+    if (!opcoes) {
+      select.innerHTML = `<option value="">${placeholderVazio}</option>`;
+      select.disabled = true;
       return;
     }
     if (!opcoes.length) {
-      codigoSelect.innerHTML = '<option value="">Nenhum código cadastrado para esta empresa</option>';
+      select.innerHTML = '<option value="">Nenhum cadastrado — cadastre em Códigos de Serviço</option>';
+      select.disabled = true;
       return;
     }
-    codigoSelect.innerHTML = '<option value="">Selecione...</option>' +
-      opcoes.map(c => `<option value="${c.codigo}">${c.codigo}${c.descricao ? ' — ' + c.descricao : ''}</option>`).join('');
+    select.innerHTML = `<option value="">${placeholderPreenchido}</option>` +
+      opcoes.map(o => `<option value="${o.codigo}" data-id="${o.id}">${o.codigo}${o.descricao ? ' — ' + o.descricao : ''}</option>`).join('');
+    select.disabled = false;
+  }
+
+  function popularCodigos(empresaId) {
+    if (!empresaId) {
+      codigoSelect.innerHTML = '<option value="">Selecione a empresa primeiro...</option>';
+      codigoSelect.disabled = true;
+    } else {
+      const opcoes = CODIGOS_SERVICO.filter(c => String(c.empresa_id) === String(empresaId));
+      popularSelect(codigoSelect, opcoes, 'Selecione a empresa primeiro...', 'Selecione...');
+    }
+    // empresa mudou -> zera toda a cascata abaixo
+    popularSelect(nbsSelect, null, 'Selecione o código de serviço primeiro...');
+    popularSelect(indicadorSelect, null, 'Selecione o NBS primeiro...');
+    popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+  }
+
+  function popularNbs(codigoServicoId) {
+    if (!codigoServicoId) {
+      popularSelect(nbsSelect, null, 'Selecione o código de serviço primeiro...');
+    } else {
+      const opcoes = NBS_LIST.filter(n => String(n.codigo_servico_id) === String(codigoServicoId));
+      popularSelect(nbsSelect, opcoes, '', 'Selecione o NBS...');
+    }
+    popularSelect(indicadorSelect, null, 'Selecione o NBS primeiro...');
+    popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+  }
+
+  function popularIndicadores(nbsId) {
+    if (!nbsId) {
+      popularSelect(indicadorSelect, null, 'Selecione o NBS primeiro...');
+    } else {
+      const opcoes = INDICADORES.filter(i => String(i.nbs_id) === String(nbsId));
+      popularSelect(indicadorSelect, opcoes, '', 'Selecione o indicador...');
+    }
+    popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+  }
+
+  function popularClassificacoes(indicadorId) {
+    if (!indicadorId) {
+      popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+    } else {
+      const opcoes = CLASSIFICACOES.filter(c => String(c.indicador_operacao_id) === String(indicadorId));
+      popularSelect(classificacaoSelect, opcoes, '', 'Selecione a classificação...');
+    }
   }
 
   empresaSelect.addEventListener('change', () => {
@@ -155,11 +251,25 @@
     if (opt && opt.dataset.iss) issInput.value = Number(opt.dataset.iss).toLocaleString('pt-BR', {minimumFractionDigits:2});
     popularCodigos(empresaSelect.value);
   });
+  codigoSelect.addEventListener('change', () => {
+    const opt = codigoSelect.selectedOptions[0];
+    popularNbs(opt ? opt.dataset.id : null);
+  });
+  nbsSelect.addEventListener('change', () => {
+    const opt = nbsSelect.selectedOptions[0];
+    popularIndicadores(opt ? opt.dataset.id : null);
+  });
+  indicadorSelect.addEventListener('change', () => {
+    const opt = indicadorSelect.selectedOptions[0];
+    popularClassificacoes(opt ? opt.dataset.id : null);
+  });
+
   popularCodigos(empresaSelect.value);
 
   const radios = document.querySelectorAll('input[name="tipoPessoa"]');
   const campoCnpj = document.getElementById('campo-cnpj');
   const campoSimples = document.getElementById('campo-simples');
+  const campoEndereco = document.getElementById('campo-endereco');
   const cnpjInput = document.getElementById('cnpj');
   const simplesSelect = document.getElementById('simplesNacional');
 
@@ -168,10 +278,12 @@
     if (tipo === 'cpf') {
       campoCnpj.style.display = 'none';
       campoSimples.style.display = 'none';
+      campoEndereco.style.display = 'none';
       cnpjInput.required = false;
     } else {
       campoCnpj.style.display = '';
       campoSimples.style.display = '';
+      campoEndereco.style.display = '';
     }
   }
   radios.forEach(r => r.addEventListener('change', syncTipoPessoa));
@@ -207,6 +319,11 @@
       const c = data.cliente;
       clienteInput.value = c.razao_social || '';
       cidadeInput.value = c.cidade || '';
+      document.getElementById('logradouro').value = c.logradouro || '';
+      document.getElementById('numero').value = c.numero || '';
+      document.getElementById('bairro').value = c.bairro || '';
+      document.getElementById('complemento').value = c.complemento || '';
+      document.getElementById('cep').value = c.cep || '';
       simplesSelect.value = c.simples_nacional === 'Simples Nacional' ? 'Simples Nacional' : 'Não';
       if (c.fonte === 'cadastro') {
         cnpjStatus.textContent = '✓ Encontrado no cadastro local.';

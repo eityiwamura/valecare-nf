@@ -1,0 +1,94 @@
+<%- include('partials/head', { title: 'Indicadores de Operação' }) %>
+
+<div class="page-header">
+  <div>
+    <p style="margin:0 0 4px; font-size:13px; color:var(--text-muted);">
+      <a href="/codigos-servico" style="color:var(--primary);">Códigos de Serviço</a> ›
+      <a href="/codigos-servico/<%= nbs.codigo_servico_id %>/nbs" style="color:var(--primary);"><%= nbs.codigo_servico_codigo %></a> ›
+      NBS <%= nbs.codigo %>
+    </p>
+    <h1>Indicadores de Operação — <%= nbs.codigo %><% if (nbs.descricao) { %> <span style="color:var(--text-muted); font-weight:500;">(<%= nbs.descricao %>)</span><% } %></h1>
+    <p>Cadastre os indicadores de operação vinculados a este NBS.</p>
+  </div>
+</div>
+
+<% if (erro) { %>
+  <div class="alert alert-error"><%= erro %></div>
+<% } %>
+<% if (sucesso) { %>
+  <div class="alert alert-success">Indicador salvo com sucesso!</div>
+<% } %>
+
+<div class="grid cols-2" style="align-items:start;">
+  <div class="card">
+    <h3 style="margin-top:0;">Novo indicador</h3>
+    <form method="POST" action="/indicadores">
+      <input type="hidden" name="nbsId" value="<%= nbs.id %>" />
+      <div class="field">
+        <label for="codigo">Código do indicador</label>
+        <input type="text" name="codigo" id="codigo" placeholder="Ex: 1" required />
+      </div>
+      <div class="field">
+        <label for="descricao">Descrição</label>
+        <input type="text" name="descricao" id="descricao" placeholder="Ex: Tributação no município do prestador" />
+      </div>
+      <button class="btn btn-primary" type="submit" style="width:100%;">Salvar indicador</button>
+    </form>
+  </div>
+
+  <div class="card" style="padding:0; overflow-x:auto;">
+    <% if (!indicadores.length) { %>
+      <div class="empty-state">
+        <div class="icon">🏷️</div>
+        <div>Nenhum indicador cadastrado para este NBS ainda.</div>
+      </div>
+    <% } else { %>
+      <table>
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Descrição</th>
+            <th>Classificações</th>
+            <th style="width:40px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% indicadores.forEach(function(i){ %>
+          <tr data-indicador-id="<%= i.id %>">
+            <td class="text-col" style="font-family:var(--font-mono); font-weight:700;"><%= i.codigo %></td>
+            <td class="text-col"><%= i.descricao || '-' %></td>
+            <td class="text-col">
+              <a href="/indicadores/<%= i.id %>/classificacoes" style="color:var(--primary); text-decoration:underline;">
+                <%= i.total_classificacoes %> classificação(ões) →
+              </a>
+            </td>
+            <td>
+              <button type="button" class="indicador-delete-btn" data-id="<%= i.id %>" title="Excluir"
+                style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:15px;">🗑</button>
+            </td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } %>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.indicador-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Excluir este indicador? Isso também remove as classificações tributárias vinculadas a ele.')) return;
+      const id = btn.dataset.id;
+      const resp = await fetch('/indicadores/excluir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) window.location.reload();
+      else alert(data.erro || 'Erro ao excluir.');
+    });
+  });
+</script>
+
+<%- include('partials/foot') %>

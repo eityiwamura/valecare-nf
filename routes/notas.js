@@ -163,12 +163,18 @@ router.get('/notas/nova', async (req, res) => {
   const { rows: empresas } = await pool.query('SELECT * FROM empresas ORDER BY nome');
   const { rows: configs } = await pool.query('SELECT * FROM configuracoes');
   const { rows: codigos } = await pool.query('SELECT * FROM codigos_servico ORDER BY codigo');
+  const { rows: nbsList } = await pool.query('SELECT * FROM nbs ORDER BY codigo');
+  const { rows: indicadores } = await pool.query('SELECT * FROM indicadores_operacao ORDER BY codigo');
+  const { rows: classificacoes } = await pool.query('SELECT * FROM classificacoes_tributarias ORDER BY codigo');
   const configMap = {};
   configs.forEach((c) => { configMap[c.empresa_id] = c.iss_aliquota; });
   res.render('nota-manual', {
     empresas,
     configMap,
     codigos,
+    nbsList,
+    indicadores,
+    classificacoes,
     erro: null,
     sucesso: req.query.ok === '1',
     hoje: new Date().toISOString().slice(0, 10)
@@ -179,17 +185,22 @@ router.post('/notas/nova', async (req, res) => {
   const { rows: empresas } = await pool.query('SELECT * FROM empresas ORDER BY nome');
   const { rows: configs } = await pool.query('SELECT * FROM configuracoes');
   const { rows: codigos } = await pool.query('SELECT * FROM codigos_servico ORDER BY codigo');
+  const { rows: nbsList } = await pool.query('SELECT * FROM nbs ORDER BY codigo');
+  const { rows: indicadores } = await pool.query('SELECT * FROM indicadores_operacao ORDER BY codigo');
+  const { rows: classificacoes } = await pool.query('SELECT * FROM classificacoes_tributarias ORDER BY codigo');
   const configMap = {};
   configs.forEach((c) => { configMap[c.empresa_id] = c.iss_aliquota; });
 
   const render = (erro) => res.render('nota-manual', {
-    empresas, configMap, codigos, erro, sucesso: false, hoje: new Date().toISOString().slice(0, 10)
+    empresas, configMap, codigos, nbsList, indicadores, classificacoes,
+    erro, sucesso: false, hoje: new Date().toISOString().slice(0, 10)
   });
 
   try {
     const {
       empresaId, tipoPessoa, cnpj, cliente, cidade, simplesNacional,
-      codigoServico, descricao, valor, vencimento, dataEmissao, issAliquota
+      codigoServico, nbs, indicadorOperacao, classificacaoTributaria,
+      descricao, valor, vencimento, dataEmissao, issAliquota
     } = req.body;
 
     if (!empresaId) return render('Selecione a empresa emissora.');
@@ -230,11 +241,13 @@ router.post('/notas/nova', async (req, res) => {
       const insertResult = await client.query(
         `INSERT INTO notas_fiscais
           (lote_id, empresa_id, simples_nacional, cidade, cliente, cnpj, cnpj_norm, codigo_servico,
+           nbs, indicador_operacao, classificacao_tributaria,
            descricao, vencimento, data_emissao, origem, valor, pis_bruto, cofins_bruto, csll_bruto, irpj_bruto, iss)
-         VALUES (NULL,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'manual',$11,$12,$13,$14,$15,$16)
+         VALUES (NULL,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'manual',$14,$15,$16,$17,$18,$19)
          RETURNING id`,
         [
           empresa.id, linha.simplesNacional, cidade, cliente, cnpj || null, bruto.cnpjNorm, codigoServico || null,
+          nbs || null, indicadorOperacao || null, classificacaoTributaria || null,
           descricao || null, linha.vencimento, dataEmissaoFinal, valorNum,
           bruto.pisBruto, bruto.cofinsBruto, bruto.csllBruto, bruto.irpjBruto, bruto.iss
         ]

@@ -47,6 +47,11 @@ CREATE TABLE IF NOT EXISTS clientes (
   cnpj VARCHAR(14) UNIQUE NOT NULL, -- só dígitos
   razao_social VARCHAR(255),
   nome_fantasia VARCHAR(255),
+  logradouro VARCHAR(255),
+  numero VARCHAR(20),
+  complemento VARCHAR(255),
+  bairro VARCHAR(120),
+  cep VARCHAR(10),
   cidade VARCHAR(120),
   uf VARCHAR(2),
   simples_nacional VARCHAR(20), -- 'Simples Nacional' | 'Não'
@@ -55,6 +60,13 @@ CREATE TABLE IF NOT EXISTS clientes (
   atualizado_em TIMESTAMP DEFAULT now(),
   created_at TIMESTAMP DEFAULT now()
 );
+
+-- Colunas de endereço em bancos já existentes (idempotente)
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS logradouro VARCHAR(255);
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS numero VARCHAR(20);
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS complemento VARCHAR(255);
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS bairro VARCHAR(120);
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS cep VARCHAR(10);
 
 CREATE TABLE IF NOT EXISTS notas_fiscais (
   id SERIAL PRIMARY KEY,
@@ -66,6 +78,9 @@ CREATE TABLE IF NOT EXISTS notas_fiscais (
   cnpj VARCHAR(30),
   cnpj_norm VARCHAR(14), -- CNPJ só com dígitos, usado para agrupar por cliente
   codigo_servico VARCHAR(20),
+  nbs VARCHAR(20),
+  indicador_operacao VARCHAR(20),
+  classificacao_tributaria VARCHAR(20),
   descricao VARCHAR(255),
   vencimento DATE,
   data_emissao DATE NOT NULL,
@@ -87,6 +102,9 @@ CREATE TABLE IF NOT EXISTS notas_fiscais (
 -- Colunas novas em bancos já existentes (idempotente - não quebra deploys anteriores)
 ALTER TABLE notas_fiscais ADD COLUMN IF NOT EXISTS cnpj_norm VARCHAR(14);
 ALTER TABLE notas_fiscais ADD COLUMN IF NOT EXISTS codigo_servico VARCHAR(20);
+ALTER TABLE notas_fiscais ADD COLUMN IF NOT EXISTS nbs VARCHAR(20);
+ALTER TABLE notas_fiscais ADD COLUMN IF NOT EXISTS indicador_operacao VARCHAR(20);
+ALTER TABLE notas_fiscais ADD COLUMN IF NOT EXISTS classificacao_tributaria VARCHAR(20);
 ALTER TABLE notas_fiscais ADD COLUMN IF NOT EXISTS origem VARCHAR(10) NOT NULL DEFAULT 'upload';
 ALTER TABLE notas_fiscais ADD COLUMN IF NOT EXISTS pis_bruto NUMERIC(14,2) NOT NULL DEFAULT 0;
 ALTER TABLE notas_fiscais ADD COLUMN IF NOT EXISTS cofins_bruto NUMERIC(14,2) NOT NULL DEFAULT 0;
@@ -117,5 +135,37 @@ CREATE TABLE IF NOT EXISTS codigos_servico (
 );
 
 CREATE INDEX IF NOT EXISTS idx_codigos_servico_empresa ON codigos_servico(empresa_id);
+
+-- Hierarquia em cascata: Código de Serviço > NBS > Indicador de Operação > Classificação Tributária
+CREATE TABLE IF NOT EXISTS nbs (
+  id SERIAL PRIMARY KEY,
+  codigo_servico_id INT NOT NULL REFERENCES codigos_servico(id) ON DELETE CASCADE,
+  codigo VARCHAR(20) NOT NULL,
+  descricao VARCHAR(255),
+  created_at TIMESTAMP DEFAULT now(),
+  UNIQUE(codigo_servico_id, codigo)
+);
+
+CREATE TABLE IF NOT EXISTS indicadores_operacao (
+  id SERIAL PRIMARY KEY,
+  nbs_id INT NOT NULL REFERENCES nbs(id) ON DELETE CASCADE,
+  codigo VARCHAR(20) NOT NULL,
+  descricao VARCHAR(255),
+  created_at TIMESTAMP DEFAULT now(),
+  UNIQUE(nbs_id, codigo)
+);
+
+CREATE TABLE IF NOT EXISTS classificacoes_tributarias (
+  id SERIAL PRIMARY KEY,
+  indicador_operacao_id INT NOT NULL REFERENCES indicadores_operacao(id) ON DELETE CASCADE,
+  codigo VARCHAR(20) NOT NULL,
+  descricao VARCHAR(255),
+  created_at TIMESTAMP DEFAULT now(),
+  UNIQUE(indicador_operacao_id, codigo)
+);
+
+CREATE INDEX IF NOT EXISTS idx_nbs_codigo_servico ON nbs(codigo_servico_id);
+CREATE INDEX IF NOT EXISTS idx_indicadores_nbs ON indicadores_operacao(nbs_id);
+CREATE INDEX IF NOT EXISTS idx_classificacoes_indicador ON classificacoes_tributarias(indicador_operacao_id);
 
 -- Sessões (connect-pg-simple cria a tabela automaticamente, mantido aqui como referência)
