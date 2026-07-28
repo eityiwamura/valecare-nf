@@ -4,6 +4,7 @@ const pool = require('../db/pool');
 const { parsePlanilha } = require('../services/parser');
 const { calcularLoteBruto } = require('../services/calculo');
 const { recalcularGrupos } = require('../services/grupos');
+const { resolverCliente } = require('../services/clientes');
 
 const router = express.Router();
 const upload = multer({
@@ -59,6 +60,18 @@ router.post('/upload', upload.single('planilha'), async (req, res) => {
     }
 
     const calculadas = calcularLoteBruto(linhasBrutas, empresa.slug, aliquota);
+
+    // Enriquece o cadastro de clientes (endereço, código IBGE) para cada CNPJ do lote
+    // que ainda não está completo no cadastro local. Não trava o upload se alguma
+    // consulta falhar - a NF é salva do mesmo jeito, só sem o endereço completo.
+    const cnpjsUnicos = [...new Set(calculadas.map((r) => r.cnpjNorm).filter((c) => c && c.length === 14))];
+    const CONCORRENCIA = 5;
+    for (let i = 0; i < cnpjsUnicos.length; i += CONCORRENCIA) {
+      const lote = cnpjsUnicos.slice(i, i + CONCORRENCIA);
+      await Promise.all(lote.map((cnpj) => resolverCliente(pool, cnpj).catch((err) => {
+        console.warn(`Não foi possível enriquecer o cadastro do CNPJ ${cnpj}: ${err.message}`);
+      })));
+    }
 
     const client = await pool.connect();
     try {

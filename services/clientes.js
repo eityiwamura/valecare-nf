@@ -2,7 +2,38 @@ const { onlyDigits } = require('./calculo');
 
 const BRASIL_API_BASE = 'https://brasilapi.com.br/api/cnpj/v1';
 const OPENCNPJ_BASE = 'https://api.opencnpj.org';
+const IBGE_MUNICIPIOS_BASE = 'https://servicodados.ibge.gov.br/api/v1/localidades/estados';
 const USER_AGENT = 'Mozilla/5.0 (compatible; ValecareNF/1.0; +https://valecare-nf)';
+
+function normalizarNomeMunicipio(nome) {
+  return String(nome || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Resolve o código IBGE (7 dígitos) de um município a partir do nome + UF,
+ * usando a API oficial e gratuita do IBGE (servicodados.ibge.gov.br). Usada
+ * como complemento quando a fonte de CNPJ não devolve o código IBGE direto
+ * (caso do fallback OpenCNPJ).
+ */
+async function buscarCodigoIbgePorNomeUf(municipio, uf) {
+  if (!municipio || !uf) return '';
+  try {
+    const resp = await fetch(`${IBGE_MUNICIPIOS_BASE}/${uf}/municipios`, {
+      headers: { Accept: 'application/json', 'User-Agent': USER_AGENT }
+    });
+    if (!resp.ok) return '';
+    const lista = await resp.json();
+    const alvo = normalizarNomeMunicipio(municipio);
+    const encontrado = lista.find((m) => normalizarNomeMunicipio(m.nome) === alvo);
+    return encontrado ? String(encontrado.id) : '';
+  } catch (err) {
+    return ''; // não bloqueia a busca do cliente por causa disso
+  }
+}
 
 /**
  * Consulta o CNPJ na BrasilAPI (proxy gratuito e público dos dados da Receita Federal).
@@ -39,6 +70,7 @@ async function buscarClienteBrasilAPI(cnpjDigits) {
     cep: data.cep || '',
     cidade: data.municipio || '',
     uf: data.uf || '',
+    codigoIbge: data.codigo_municipio_ibge ? String(data.codigo_municipio_ibge) : '',
     simplesNacional: optanteSimples ? 'Simples Nacional' : 'Não',
     situacaoCadastral: data.descricao_situacao_cadastral || '',
     regimeConhecido: true
@@ -48,8 +80,8 @@ async function buscarClienteBrasilAPI(cnpjDigits) {
 /**
  * Fallback: OpenCNPJ (fonte alternativa, também gratuita e sem chave). Usada quando
  * a BrasilAPI está indisponível ou bloqueando a requisição. Não confirma o Simples
- * Nacional na mesma resposta, então o regime tributário volta marcado como
- * "a conferir" para o usuário revisar antes de salvar.
+ * Nacional nem o código IBGE na mesma resposta — o Simples volta marcado como
+ * "a conferir" e o código IBGE é resolvido à parte via API oficial do IBGE.
  */
 async function buscarClienteOpenCNPJ(cnpjDigits) {
   let resp;
@@ -69,6 +101,7 @@ async function buscarClienteOpenCNPJ(cnpjDigits) {
   }
 
   const data = await resp.json();
+  const codigoIbge = await buscarCodigoIbgePorNomeUf(data.municipio, data.uf);
 
   return {
     razaoSocial: data.razao_social || '',
@@ -80,6 +113,7 @@ async function buscarClienteOpenCNPJ(cnpjDigits) {
     cep: data.cep || '',
     cidade: data.municipio || '',
     uf: data.uf || '',
+    codigoIbge,
     simplesNacional: 'Não', // esta fonte não confirma o Simples - revisar manualmente
     situacaoCadastral: data.situacao_cadastral || '',
     regimeConhecido: false
@@ -107,12 +141,12 @@ async function buscarClienteLocal(pool, cnpjDigits) {
 
 async function salvarCliente(pool, cnpjDigits, dados, fonte) {
   const { rows } = await pool.query(
-    `INSERT INTO clientes (cnpj, razao_social, nome_fantasia, logradouro, numero, complemento, bairro, cep, cidade, uf, simples_nacional, situacao_cadastral, fonte, atualizado_em)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
+    `INSERT INTO clientes (cnpj, razao_social, nome_fantasia, logradouro, numero, complemento, bairro, cep, codigo_ibge, cidade, uf, simples_nacional, situacao_cadastral, fonte, atualizado_em)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
      ON CONFLICT (cnpj) DO UPDATE SET
        razao_social = $2, nome_fantasia = $3, logradouro = $4, numero = $5, complemento = $6,
-       bairro = $7, cep = $8, cidade = $9, uf = $10, simples_nacional = $11, situacao_cadastral = $12,
-       fonte = $13, atualizado_em = now()
+       bairro = $7, cep = $8, codigo_ibge = $9, cidade = $10, uf = $11, simples_nacional = $12, situacao_cadastral = $13,
+       fonte = $14, atualizado_em = now()
      RETURNING *`,
     [
       cnpjDigits,
@@ -123,6 +157,7 @@ async function salvarCliente(pool, cnpjDigits, dados, fonte) {
       dados.complemento || null,
       dados.bairro || null,
       dados.cep || null,
+      dados.codigoIbge || null,
       dados.cidade || null,
       dados.uf || null,
       dados.simplesNacional || null,
@@ -147,13 +182,14 @@ async function resolverCliente(pool, cnpjRaw) {
   }
 
   const local = await buscarClienteLocal(pool, cnpj);
-  if (local) {
+  if (local && local.codigo_ibge) {
     return { ...local, fonte: 'cadastro' };
   }
 
+  // Cliente novo, ou já cadastrado antes do código IBGE existir no sistema -> (re)consulta
   const dadosApi = await buscarClienteAPI(cnpj);
   const salvo = await salvarCliente(pool, cnpj, dadosApi, 'api');
-  return { ...salvo, fonte: 'api', regimeConhecido: dadosApi.regimeConhecido };
+  return { ...salvo, fonte: local ? 'cadastro' : 'api', regimeConhecido: dadosApi.regimeConhecido };
 }
 
 module.exports = { resolverCliente, buscarClienteLocal, buscarClienteAPI, salvarCliente };

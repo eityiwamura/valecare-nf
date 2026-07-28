@@ -29,8 +29,15 @@ function sortLink(col, label) {
 
 <div id="bulk-bar" class="card" style="display:none; margin-bottom:16px; padding:14px 20px; align-items:center; justify-content:space-between;">
   <span id="bulk-count" style="font-weight:700;"></span>
-  <button type="button" class="btn btn-ghost" id="bulk-delete-btn" style="border-color:var(--tax); color:var(--tax);">🗑 Excluir selecionadas</button>
+  <div style="display:flex; gap:8px;">
+    <button type="button" class="btn btn-ghost" id="bulk-export-btn">⬇ Exportar selecionadas</button>
+    <button type="button" class="btn btn-ghost" id="bulk-delete-btn" style="border-color:var(--tax); color:var(--tax);">🗑 Excluir selecionadas</button>
+  </div>
 </div>
+
+<form method="POST" action="/lista/exportar" id="export-form" style="display:none;">
+  <input type="hidden" name="ids" id="export-ids" />
+</form>
 
 <form method="GET" action="/lista" class="filters-form card">
   <div class="field" style="margin:0;">
@@ -231,6 +238,19 @@ function sortLink(col, label) {
       if (confirm(msg)) {
         excluirNotas(ids);
       }
+    });
+  }
+
+  const bulkExportBtn = document.getElementById('bulk-export-btn');
+  const exportForm = document.getElementById('export-form');
+  const exportIdsInput = document.getElementById('export-ids');
+
+  if (bulkExportBtn) {
+    bulkExportBtn.addEventListener('click', () => {
+      const ids = rowChecks().filter(c => c.checked).map(c => c.value);
+      if (!ids.length) return;
+      exportIdsInput.value = ids.join(',');
+      exportForm.submit();
     });
   }
 </script>

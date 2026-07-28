@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS clientes (
   complemento VARCHAR(255),
   bairro VARCHAR(120),
   cep VARCHAR(10),
+  codigo_ibge VARCHAR(10),
   cidade VARCHAR(120),
   uf VARCHAR(2),
   simples_nacional VARCHAR(20), -- 'Simples Nacional' | 'Não'
@@ -67,6 +68,7 @@ ALTER TABLE clientes ADD COLUMN IF NOT EXISTS numero VARCHAR(20);
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS complemento VARCHAR(255);
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS bairro VARCHAR(120);
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS cep VARCHAR(10);
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS codigo_ibge VARCHAR(10);
 
 CREATE TABLE IF NOT EXISTS notas_fiscais (
   id SERIAL PRIMARY KEY,

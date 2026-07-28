@@ -3,6 +3,7 @@ const pool = require('../db/pool');
 const { calcularBrutoLinha } = require('../services/calculo');
 const { recalcularGrupo, recalcularGrupos } = require('../services/grupos');
 const { resolverCliente } = require('../services/clientes');
+const { gerarExportacao } = require('../services/exportador');
 
 const router = express.Router();
 
@@ -272,6 +273,40 @@ router.post('/notas/nova', async (req, res) => {
   } catch (err) {
     console.error(err);
     render('Erro ao salvar a NF: ' + err.message);
+  }
+});
+
+// --- Exportação das NFs selecionadas no formato do modelo (MEDICINA/ENGENHARIA) ---
+router.post('/lista/exportar', async (req, res) => {
+  try {
+    let ids = req.body.ids;
+    if (!ids) return res.status(400).send('Nenhuma nota selecionada.');
+    if (!Array.isArray(ids)) ids = String(ids).split(',');
+    ids = ids.map((id) => parseInt(id, 10)).filter((id) => Number.isInteger(id));
+    if (!ids.length) return res.status(400).send('Nenhuma nota selecionada.');
+
+    const { rows: notas } = await pool.query(
+      `SELECT n.*, e.slug AS empresa_slug,
+              c.logradouro AS cliente_logradouro, c.numero AS cliente_numero,
+              c.complemento AS cliente_complemento, c.bairro AS cliente_bairro,
+              c.cep AS cliente_cep, c.uf AS cliente_uf, c.codigo_ibge AS cliente_codigo_ibge
+       FROM notas_fiscais n
+       JOIN empresas e ON e.id = n.empresa_id
+       LEFT JOIN clientes c ON c.cnpj = n.cnpj_norm
+       WHERE n.id = ANY($1::int[])
+       ORDER BY n.id`,
+      [ids]
+    );
+
+    const buffer = gerarExportacao(notas);
+    const nomeArquivo = `notas-fiscais-${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Erro ao gerar a exportação.');
   }
 });
 
