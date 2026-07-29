@@ -2,7 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { calcularBrutoLinha } = require('../services/calculo');
 const { recalcularGrupo, recalcularGrupos } = require('../services/grupos');
-const { resolverCliente, buscarClienteGenerico, salvarClienteFormulario } = require('../services/clientes');
+const { resolverCliente, buscarClienteGenerico, salvarClienteFormulario, buscarEnderecoPorCep } = require('../services/clientes');
 const { gerarExportacao } = require('../services/exportador');
 
 const router = express.Router();
@@ -159,6 +159,18 @@ router.post('/api/clientes/buscar', async (req, res) => {
   }
 });
 
+// --- Busca de endereço por CEP (usado principalmente para CPF, sem consulta por documento) ---
+router.post('/api/cep/buscar', async (req, res) => {
+  try {
+    const { cep } = req.body;
+    if (!cep) return res.status(400).json({ ok: false, erro: 'Informe um CEP.' });
+    const endereco = await buscarEnderecoPorCep(cep);
+    res.json({ ok: true, endereco });
+  } catch (err) {
+    res.status(400).json({ ok: false, erro: err.message });
+  }
+});
+
 // --- Lançamento manual de uma única NF ---
 router.get('/notas/nova', async (req, res) => {
   const { rows: empresas } = await pool.query('SELECT * FROM empresas ORDER BY nome');
@@ -200,7 +212,7 @@ router.post('/notas/nova', async (req, res) => {
   try {
     const {
       empresaId, tipoPessoa, cnpj, cliente, cidade, uf, simplesNacional,
-      logradouro, numero, complemento, bairro, cep,
+      logradouro, numero, complemento, bairro, cep, codigoIbge,
       codigoServico, nbs, indicadorOperacao, classificacaoTributaria,
       descricao, valor, vencimento, dataEmissao, issAliquota
     } = req.body;
@@ -267,7 +279,7 @@ router.post('/notas/nova', async (req, res) => {
           client,
           documentoLimpo,
           isCpf ? 'cpf' : 'cnpj',
-          { razaoSocial: cliente, logradouro, numero, complemento, bairro, cep, cidade, uf, simplesNacional: linha.simplesNacional },
+          { razaoSocial: cliente, logradouro, numero, complemento, bairro, cep, codigoIbge, cidade, uf, simplesNacional: linha.simplesNacional },
           'manual'
         );
       }

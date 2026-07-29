@@ -35,6 +35,65 @@ async function buscarCodigoIbgePorNomeUf(municipio, uf) {
   }
 }
 
+const VIACEP_BASE = 'https://viacep.com.br/ws';
+const BRASILAPI_CEP_BASE = 'https://brasilapi.com.br/api/cep/v2';
+
+/**
+ * Busca endereço completo (incluindo código IBGE) a partir de um CEP.
+ * Usada principalmente pra clientes CPF, onde não existe consulta por
+ * documento — o CEP é o jeito de completar o endereço automaticamente.
+ * Também útil pra corrigir/completar o endereço de um CNPJ já cadastrado.
+ */
+async function buscarEnderecoPorCep(cepRaw) {
+  const cep = String(cepRaw || '').replace(/\D/g, '');
+  if (cep.length !== 8) {
+    throw new Error('CEP inválido — precisa ter 8 dígitos.');
+  }
+
+  // Fonte principal: ViaCEP
+  try {
+    const resp = await fetch(`${VIACEP_BASE}/${cep}/json/`, {
+      headers: { Accept: 'application/json', 'User-Agent': USER_AGENT }
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      if (!data.erro) {
+        return {
+          logradouro: data.logradouro || '',
+          bairro: data.bairro || '',
+          cidade: data.localidade || '',
+          uf: data.uf || '',
+          codigoIbge: data.ibge || ''
+        };
+      }
+    }
+  } catch (err) {
+    // segue para o fallback
+  }
+
+  // Fallback: BrasilAPI (não devolve código IBGE direto - resolve à parte pelo nome da cidade)
+  try {
+    const resp = await fetch(`${BRASILAPI_CEP_BASE}/${cep}`, {
+      headers: { Accept: 'application/json', 'User-Agent': USER_AGENT }
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      const codigoIbge = await buscarCodigoIbgePorNomeUf(data.city, data.state);
+      return {
+        logradouro: data.street || '',
+        bairro: data.neighborhood || '',
+        cidade: data.city || '',
+        uf: data.state || '',
+        codigoIbge
+      };
+    }
+  } catch (err) {
+    // segue para o erro final
+  }
+
+  throw new Error('CEP não encontrado em nenhuma fonte. Confira o número ou preencha o endereço manualmente.');
+}
+
 /**
  * Consulta o CNPJ na BrasilAPI (proxy gratuito e público dos dados da Receita Federal).
  * Não requer chave de API. Lança erro com mensagem amigável em caso de falha.
@@ -248,6 +307,7 @@ module.exports = {
   buscarClienteGenerico,
   buscarClienteLocal,
   buscarClienteAPI,
+  buscarEnderecoPorCep,
   salvarCliente,
   salvarClienteFormulario
 };
