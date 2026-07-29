@@ -22,14 +22,24 @@ const COLUNAS_ENGENHARIA = [
 
 /**
  * Converte para número quando o valor "parece" um número (mantendo o padrão do
- * modelo: CNPJ, código de serviço, código IBGE etc. são gravados como número,
- * perdendo zeros à esquerda — é assim que o sistema que consome esse arquivo espera).
- * Quando não é numérico (ex: NBS com pontos, "S/N"), mantém como texto.
+ * modelo para colunas de endereço: número da casa, código IBGE etc. são gravados
+ * como número no modelo original).
  */
 function comoNumeroOuTexto(valor) {
   if (valor === null || valor === undefined || valor === '') return '';
   const n = Number(valor);
   return Number.isFinite(n) ? n : String(valor);
+}
+
+/**
+ * Mantém sempre como TEXTO, mesmo que pareça um número — usado nos campos onde
+ * perder o zero à esquerda (ex: "040301" virar 40301) quebra a leitura da
+ * planilha por outros sistemas: CPF_CNPJ, Codigo_Servico, indicador de operação
+ * e classificação tributária.
+ */
+function comoTexto(valor) {
+  if (valor === null || valor === undefined || valor === '') return '';
+  return String(valor);
 }
 
 function valorOuVazio(n) {
@@ -43,10 +53,10 @@ function valorOuVazio(n) {
  */
 function montarLinha(nf, isMedicina) {
   const base = {
-    CPF_CNPJ: comoNumeroOuTexto(nf.cnpj_norm || nf.cnpj),
+    CPF_CNPJ: comoTexto(nf.cnpj_norm || nf.cnpj),
     Nome: nf.cliente || '',
     Valor: Number(nf.valor) || 0,
-    Codigo_Servico: comoNumeroOuTexto(nf.codigo_servico),
+    Codigo_Servico: comoTexto(nf.codigo_servico),
     Endereco_Pais: 'BRA',
     Endereco_Cep: nf.cliente_cep || '',
     Endereco_Logradouro: nf.cliente_logradouro || '',
@@ -57,8 +67,8 @@ function montarLinha(nf, isMedicina) {
     Endereco_Cidade_Nome: nf.cidade || '',
     Endereco_Estado: nf.cliente_uf || '',
     Descricao: nf.descricao || '',
-    IBSCBS_Indicador_Operacao: comoNumeroOuTexto(nf.indicador_operacao),
-    IBSCBS_Codigo_Classificacao: comoNumeroOuTexto(nf.classificacao_tributaria),
+    IBSCBS_Indicador_Operacao: comoTexto(nf.indicador_operacao),
+    IBSCBS_Codigo_Classificacao: comoTexto(nf.classificacao_tributaria),
     NBS: nf.nbs || '',
     Tipo_Tributacao: '',
     Aliquota_ISS: '',

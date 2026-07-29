@@ -2,7 +2,7 @@ const express = require('express');
 const pool = require('../db/pool');
 const { calcularBrutoLinha } = require('../services/calculo');
 const { recalcularGrupo, recalcularGrupos } = require('../services/grupos');
-const { resolverCliente } = require('../services/clientes');
+const { resolverCliente, buscarClienteGenerico, salvarClienteFormulario } = require('../services/clientes');
 const { gerarExportacao } = require('../services/exportador');
 
 const router = express.Router();
@@ -147,15 +147,15 @@ router.post('/lista/excluir', async (req, res) => {
   }
 });
 
-// --- Busca de CNPJ (usado pela tela de lançamento manual via AJAX) ---
+// --- Busca de CNPJ ou CPF (usado pela tela de lançamento manual via AJAX) ---
 router.post('/api/clientes/buscar', async (req, res) => {
   try {
     const { cnpj } = req.body;
-    if (!cnpj) return res.status(400).json({ ok: false, erro: 'Informe um CNPJ.' });
-    const cliente = await resolverCliente(pool, cnpj);
+    if (!cnpj) return res.status(400).json({ ok: false, erro: 'Informe um CNPJ ou CPF.' });
+    const cliente = await buscarClienteGenerico(pool, cnpj);
     res.json({ ok: true, cliente });
   } catch (err) {
-    res.status(400).json({ ok: false, erro: err.message });
+    res.status(400).json({ ok: false, erro: err.message, cpfNaoEncontrado: Boolean(err.cpfNaoEncontrado) });
   }
 });
 
@@ -199,7 +199,8 @@ router.post('/notas/nova', async (req, res) => {
 
   try {
     const {
-      empresaId, tipoPessoa, cnpj, cliente, cidade, simplesNacional,
+      empresaId, tipoPessoa, cnpj, cliente, cidade, uf, simplesNacional,
+      logradouro, numero, complemento, bairro, cep,
       codigoServico, nbs, indicadorOperacao, classificacaoTributaria,
       descricao, valor, vencimento, dataEmissao, issAliquota
     } = req.body;
@@ -218,17 +219,21 @@ router.post('/notas/nova', async (req, res) => {
     if (isNaN(aliquota) || aliquota < 0) return render('Informe uma alíquota de ISS válida.');
 
     const dataEmissaoFinal = dataEmissao || new Date().toISOString().slice(0, 10);
-    const cnpjLimpo = tipoPessoa === 'cpf' ? '' : String(cnpj || '').replace(/\D/g, '');
+    const documentoLimpo = String(cnpj || '').replace(/\D/g, '');
+    const isCpf = tipoPessoa === 'cpf';
 
-    if (tipoPessoa !== 'cpf' && cnpjLimpo.length !== 14) {
+    if (isCpf && documentoLimpo.length !== 11) {
+      return render('CPF inválido — precisa ter 11 dígitos.');
+    }
+    if (!isCpf && documentoLimpo.length !== 14) {
       return render('CNPJ inválido — precisa ter 14 dígitos.');
     }
 
     const linha = {
-      simplesNacional: tipoPessoa === 'cpf' ? 'Pessoa Física' : simplesNacional,
+      simplesNacional: isCpf ? 'Pessoa Física' : simplesNacional,
       cidade,
       cliente,
-      cnpj: cnpjLimpo,
+      cnpj: documentoLimpo,
       descricao,
       vencimento: vencimento || null,
       valor: valorNum
@@ -247,17 +252,30 @@ router.post('/notas/nova', async (req, res) => {
          VALUES (NULL,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'manual',$14,$15,$16,$17,$18,$19)
          RETURNING id`,
         [
-          empresa.id, linha.simplesNacional, cidade, cliente, cnpj || null, bruto.cnpjNorm, codigoServico || null,
+          empresa.id, linha.simplesNacional, cidade, cliente, documentoLimpo || null, bruto.cnpjNorm, codigoServico || null,
           nbs || null, indicadorOperacao || null, classificacaoTributaria || null,
           descricao || null, linha.vencimento, dataEmissaoFinal, valorNum,
           bruto.pisBruto, bruto.cofinsBruto, bruto.csllBruto, bruto.irpjBruto, bruto.iss
         ]
       );
 
+      // Salva/atualiza o cliente (CNPJ ou CPF) no cadastro local, mesclando com o
+      // que já existia - assim CPFs digitados manualmente ficam disponíveis pra
+      // busca instantânea da próxima vez, e correções feitas aqui não se perdem.
+      if (documentoLimpo) {
+        await salvarClienteFormulario(
+          client,
+          documentoLimpo,
+          isCpf ? 'cpf' : 'cnpj',
+          { razaoSocial: cliente, logradouro, numero, complemento, bairro, cep, cidade, uf, simplesNacional: linha.simplesNacional },
+          'manual'
+        );
+      }
+
       if (bruto.cnpjNorm) {
         await recalcularGrupo(client, { cnpjNorm: bruto.cnpjNorm, dataEmissao: dataEmissaoFinal, empresaId: empresa.id });
       } else {
-        // Pessoa física / sem CNPJ: não agrupa, mas ainda assim precisa gravar valor_liquido
+        // sem documento algum: não agrupa, mas ainda assim precisa gravar valor_liquido
         const valorLiquido = Math.round((valorNum - bruto.iss + Number.EPSILON) * 100) / 100;
         await client.query('UPDATE notas_fiscais SET valor_liquido = $1 WHERE id = $2', [valorLiquido, insertResult.rows[0].id]);
       }

@@ -41,10 +41,11 @@ CREATE TABLE IF NOT EXISTS lotes (
   created_at TIMESTAMP DEFAULT now()
 );
 
--- Cadastro de clientes (alimentado automaticamente via BrasilAPI ou manualmente)
+-- Cadastro de clientes (CNPJ ou CPF), alimentado automaticamente via BrasilAPI (só CNPJ) ou manualmente
 CREATE TABLE IF NOT EXISTS clientes (
   id SERIAL PRIMARY KEY,
-  cnpj VARCHAR(14) UNIQUE NOT NULL, -- só dígitos
+  cnpj VARCHAR(14) UNIQUE NOT NULL, -- só dígitos - guarda CNPJ (14) ou CPF (11), ver tipo_documento
+  tipo_documento VARCHAR(4) DEFAULT 'cnpj', -- 'cnpj' | 'cpf'
   razao_social VARCHAR(255),
   nome_fantasia VARCHAR(255),
   logradouro VARCHAR(255),
@@ -69,6 +70,7 @@ ALTER TABLE clientes ADD COLUMN IF NOT EXISTS complemento VARCHAR(255);
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS bairro VARCHAR(120);
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS cep VARCHAR(10);
 ALTER TABLE clientes ADD COLUMN IF NOT EXISTS codigo_ibge VARCHAR(10);
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS tipo_documento VARCHAR(4) DEFAULT 'cnpj';
 
 CREATE TABLE IF NOT EXISTS notas_fiscais (
   id SERIAL PRIMARY KEY,
