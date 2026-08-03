@@ -18,10 +18,14 @@ function normalizeHeader(h) {
   return String(h || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .trim()
     .toLowerCase()
+    .replace(/r\$/g, '')       // remove marcador de moeda "R$" (ex: "Valor(R$)")
+    .replace(/[()]/g, '')      // remove parênteses
+    .trim()
+    .replace(/\s+/g, ' ')      // colapsa espaços múltiplos
     .replace(/\.$/, '');
 }
+
 
 function excelDateToJSDate(value) {
   if (value instanceof Date) return value;
@@ -45,43 +49,92 @@ function toISODate(d) {
   return d.toISOString().slice(0, 10);
 }
 
-function parsePlanilha(buffer, empresaSlug) {
-  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-  const sheetName = wb.SheetNames[0];
-  const sheet = wb.Sheets[sheetName];
-  const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
-
-  if (!raw.length) {
-    return { rows: [], erros: ['A planilha está vazia.'] };
-  }
-
-  // Descobre o mapeamento de colunas a partir do cabeçalho real
-  const sampleKeys = Object.keys(raw[0]);
+/**
+ * Monta o mapeamento coluna-original -> campo-de-destino para uma lista de
+ * cabeçalhos, e diz quantos dos campos obrigatórios ela cobre. Usado para
+ * escolher, entre várias abas do arquivo, qual delas é a planilha de dados
+ * (e não, por exemplo, uma aba de "Cadastro de Clientes").
+ */
+function mapearColunas(headers) {
   const colMap = {};
-  for (const key of sampleKeys) {
-    const norm = normalizeHeader(key);
-    if (HEADER_MAP[norm]) colMap[key] = HEADER_MAP[norm];
-  }
+  const jaMapeado = new Set();
 
-  // "Simples Nacional" só é obrigatório para a Valecare Medicina - é o único
-  // campo que ela usa para decidir a isenção de PIS/COFINS/CSLL/IRPJ. A
-  // Valecare Engenharia não usa esse dado (todos os impostos federais são
-  // sempre zero), então a planilha dela não precisa ter essa coluna.
-  const obrigatorias = empresaSlug === 'engenharia'
+  for (const key of headers) {
+    const norm = normalizeHeader(key);
+    if (HEADER_MAP[norm]) {
+      colMap[key] = HEADER_MAP[norm];
+      jaMapeado.add(HEADER_MAP[norm]);
+    }
+  }
+  for (const key of headers) {
+    if (colMap[key]) continue;
+    const norm = normalizeHeader(key);
+    if (norm.startsWith('cnpj') && !jaMapeado.has('cnpj')) {
+      colMap[key] = 'cnpj';
+      jaMapeado.add('cnpj');
+    } else if (norm.startsWith('valor') && !jaMapeado.has('valor') &&
+      !norm.includes('liquido') && !norm.includes('recebido') && !norm.includes('deducao')) {
+      colMap[key] = 'valor';
+      jaMapeado.add('valor');
+    }
+  }
+  return colMap;
+}
+
+function obrigatoriasPara(empresaSlug) {
+  return empresaSlug === 'engenharia'
     ? ['cidade', 'cliente', 'cnpj', 'valor']
     : ['simplesNacional', 'cidade', 'cliente', 'cnpj', 'valor'];
-  const encontradas = new Set(Object.values(colMap));
-  const faltando = obrigatorias.filter((c) => !encontradas.has(c));
-  if (faltando.length) {
+}
+
+function parsePlanilha(buffer, empresaSlug) {
+  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  const obrigatorias = obrigatoriasPara(empresaSlug);
+
+  if (!wb.SheetNames.length) {
+    return { rows: [], erros: ['Não foi possível ler nenhuma aba deste arquivo.'] };
+  }
+
+  // O arquivo pode ter mais de uma aba (ex: "Cadastro Clientes" + "Mensal - Julho").
+  // Escolhe automaticamente a aba que tem os campos obrigatórios (a planilha de
+  // dados de fato), em vez de assumir que é sempre a primeira aba do arquivo.
+  let melhor = null; // { sheetName, raw, colMap, faltando }
+
+  for (const sheetName of wb.SheetNames) {
+    const sheet = wb.Sheets[sheetName];
+    const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+    if (!raw.length) continue;
+
+    const colMap = mapearColunas(Object.keys(raw[0]));
+    const encontradas = new Set(Object.values(colMap));
+    const faltando = obrigatorias.filter((c) => !encontradas.has(c));
+
+    if (!faltando.length) {
+      melhor = { sheetName, raw, colMap, faltando };
+      break; // achou uma aba que serve, não precisa olhar as outras
+    }
+    // guarda a que chegou mais perto (menos campos faltando) para a mensagem de erro
+    if (!melhor || faltando.length < melhor.faltando.length) {
+      melhor = { sheetName, raw, colMap, faltando };
+    }
+  }
+
+  if (!melhor) {
+    return { rows: [], erros: ['Todas as abas do arquivo estão vazias.'] };
+  }
+
+  if (melhor.faltando.length) {
     return {
       rows: [],
       erros: [
-        `Colunas obrigatórias não encontradas na planilha: ${faltando.join(', ')}. ` +
-        `Cabeçalhos esperados: ${empresaSlug === 'engenharia' ? 'Cidade, Cliente, CNPJ, Descrição, Venc., Valor' : 'Simples Nacional, Cidade, Cliente, CNPJ, Descrição, Venc., Valor'}.`
+        `Colunas obrigatórias não encontradas na aba "${melhor.sheetName}": ${melhor.faltando.join(', ')}. ` +
+        `Cabeçalhos esperados: ${empresaSlug === 'engenharia' ? 'Cidade, Cliente, CNPJ, Descrição, Venc., Valor' : 'Simples Nacional, Cidade, Cliente, CNPJ, Descrição, Venc., Valor'}.` +
+        (wb.SheetNames.length > 1 ? ` (o arquivo tem ${wb.SheetNames.length} abas: ${wb.SheetNames.join(', ')} — nenhuma delas tem todas as colunas necessárias)` : '')
       ]
     };
   }
 
+  const { raw, colMap } = melhor;
   const rows = [];
   const erros = [];
 
@@ -101,6 +154,13 @@ function parsePlanilha(buffer, empresaSlug) {
 
     if (!row.cliente || !row.cnpj) {
       erros.push(`Linha ${idx + 2}: cliente ou CNPJ ausente — linha ignorada.`);
+      return;
+    }
+
+    // Ignora linhas de rodapé/resumo (ex: "SUBTOTAL", "TOTAL") que às vezes
+    // aparecem no fim da planilha e não são NFs de verdade.
+    const clienteNorm = String(row.cliente).trim().toLowerCase();
+    if (clienteNorm === 'subtotal' || clienteNorm === 'total' || clienteNorm === 'totais') {
       return;
     }
 
