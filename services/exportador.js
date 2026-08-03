@@ -72,7 +72,7 @@ function montarLinha(nf, isMedicina) {
     NBS: nf.nbs || '',
     Tipo_Tributacao: '',
     Aliquota_ISS: '',
-    Valor_ISS: valorOuVazio(nf.iss)
+    Valor_ISS: ''
   };
 
   if (isMedicina) {
@@ -83,7 +83,7 @@ function montarLinha(nf, isMedicina) {
       Retencao_COFINS: valorOuVazio(nf.cofins),
       Retencao_CSLL: valorOuVazio(nf.csll),
       Retencao_INSS: '',
-      Retencao_ISS: '',
+      Retencao_ISS: valorOuVazio(nf.iss),
       Retencao_OUTROS: '',
       Valor_Deducoes: '',
       Valor_Recebido: ''
@@ -92,11 +92,15 @@ function montarLinha(nf, isMedicina) {
 
   return {
     ...base,
-    Retencao_ISS: '',
+    Retencao_ISS: valorOuVazio(nf.iss),
     Retencao_OUTROS: '',
     Valor_Deducoes: '',
     Valor_Recebido: ''
   };
+}
+
+function normalizarSlug(v) {
+  return String(v || '').trim().toLowerCase();
 }
 
 /**
@@ -106,8 +110,16 @@ function montarLinha(nf, isMedicina) {
  * @returns {Buffer}
  */
 function gerarExportacao(notas) {
-  const medicina = notas.filter((n) => n.empresa_slug === 'medicina').map((n) => montarLinha(n, true));
-  const engenharia = notas.filter((n) => n.empresa_slug === 'engenharia').map((n) => montarLinha(n, false));
+  const medicina = notas.filter((n) => normalizarSlug(n.empresa_slug) === 'medicina').map((n) => montarLinha(n, true));
+  const engenharia = notas.filter((n) => normalizarSlug(n.empresa_slug) === 'engenharia').map((n) => montarLinha(n, false));
+
+  const semEmpresaReconhecida = notas.filter((n) => !['medicina', 'engenharia'].includes(normalizarSlug(n.empresa_slug)));
+  if (semEmpresaReconhecida.length) {
+    console.warn(
+      `Exportação: ${semEmpresaReconhecida.length} nota(s) com empresa não reconhecida (slug inesperado) e por isso não entraram em nenhuma aba:`,
+      semEmpresaReconhecida.map((n) => ({ id: n.id, empresa_slug: n.empresa_slug }))
+    );
+  }
 
   const wb = XLSX.utils.book_new();
 

@@ -20,11 +20,19 @@ const upload = multer({
 router.get('/upload', async (req, res) => {
   const { rows: empresas } = await pool.query('SELECT * FROM empresas ORDER BY nome');
   const { rows: configs } = await pool.query('SELECT * FROM configuracoes');
+  const { rows: codigos } = await pool.query('SELECT * FROM codigos_servico ORDER BY codigo');
+  const { rows: nbsList } = await pool.query('SELECT * FROM nbs ORDER BY codigo');
+  const { rows: indicadores } = await pool.query('SELECT * FROM indicadores_operacao ORDER BY codigo');
+  const { rows: classificacoes } = await pool.query('SELECT * FROM classificacoes_tributarias ORDER BY codigo');
   const configMap = {};
   configs.forEach((c) => { configMap[c.empresa_id] = c.iss_aliquota; });
   res.render('upload', {
     empresas,
     configMap,
+    codigos,
+    nbsList,
+    indicadores,
+    classificacoes,
     erro: null,
     sucesso: req.query.ok ? { linhas: req.query.linhas, lote: req.query.lote } : null,
     hoje: new Date().toISOString().slice(0, 10)
@@ -34,15 +42,23 @@ router.get('/upload', async (req, res) => {
 router.post('/upload', upload.single('planilha'), async (req, res) => {
   const { rows: empresas } = await pool.query('SELECT * FROM empresas ORDER BY nome');
   const { rows: configs } = await pool.query('SELECT * FROM configuracoes');
+  const { rows: codigos } = await pool.query('SELECT * FROM codigos_servico ORDER BY codigo');
+  const { rows: nbsList } = await pool.query('SELECT * FROM nbs ORDER BY codigo');
+  const { rows: indicadores } = await pool.query('SELECT * FROM indicadores_operacao ORDER BY codigo');
+  const { rows: classificacoes } = await pool.query('SELECT * FROM classificacoes_tributarias ORDER BY codigo');
   const configMap = {};
   configs.forEach((c) => { configMap[c.empresa_id] = c.iss_aliquota; });
 
   const render = (erro) => res.render('upload', {
-    empresas, configMap, erro, sucesso: null, hoje: new Date().toISOString().slice(0, 10)
+    empresas, configMap, codigos, nbsList, indicadores, classificacoes,
+    erro, sucesso: null, hoje: new Date().toISOString().slice(0, 10)
   });
 
   try {
-    const { empresaId, issAliquota, dataEmissao } = req.body;
+    const {
+      empresaId, issAliquota, dataEmissao,
+      codigoServico, nbs, indicadorOperacao, classificacaoTributaria
+    } = req.body;
     if (!req.file) return render('Selecione um arquivo .xlsx para enviar.');
     if (!empresaId) return render('Selecione a empresa emissora antes de enviar.');
 
@@ -54,7 +70,7 @@ router.post('/upload', upload.single('planilha'), async (req, res) => {
 
     const dataEmissaoFinal = dataEmissao || new Date().toISOString().slice(0, 10);
 
-    const { rows: linhasBrutas, erros } = parsePlanilha(req.file.buffer);
+    const { rows: linhasBrutas, erros } = parsePlanilha(req.file.buffer, empresa.slug);
     if (!linhasBrutas.length) {
       return render(erros.length ? erros.join(' ') : 'Nenhuma linha válida encontrada na planilha.');
     }
@@ -94,11 +110,13 @@ router.post('/upload', upload.single('planilha'), async (req, res) => {
       for (const r of calculadas) {
         await client.query(
           `INSERT INTO notas_fiscais
-            (lote_id, empresa_id, simples_nacional, cidade, cliente, cnpj, cnpj_norm, descricao,
+            (lote_id, empresa_id, simples_nacional, cidade, cliente, cnpj, cnpj_norm, codigo_servico,
+             nbs, indicador_operacao, classificacao_tributaria, descricao,
              vencimento, data_emissao, origem, valor, pis_bruto, cofins_bruto, csll_bruto, irpj_bruto, iss)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'upload',$11,$12,$13,$14,$15,$16)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'upload',$15,$16,$17,$18,$19,$20)`,
           [
-            loteId, empresa.id, r.simplesNacional, r.cidade, r.cliente, r.cnpj, r.cnpjNorm, r.descricao,
+            loteId, empresa.id, r.simplesNacional, r.cidade, r.cliente, r.cnpj, r.cnpjNorm, codigoServico || null,
+            nbs || null, indicadorOperacao || null, classificacaoTributaria || null, r.descricao,
             r.vencimento, dataEmissaoFinal, r.valor, r.pisBruto, r.cofinsBruto, r.csllBruto, r.irpjBruto, r.iss
           ]
         );

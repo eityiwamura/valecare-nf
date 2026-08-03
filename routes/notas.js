@@ -21,16 +21,8 @@ const SORT_MAP = {
   valor_liquido: 'n.valor_liquido'
 };
 
-router.get('/lista', async (req, res) => {
-  const page = Math.max(1, parseInt(req.query.page) || 1);
-  const pageSize = 10;
-  const offset = (page - 1) * pageSize;
-
-  const { empresa, cliente, cidade, simples, dataDe, dataAte } = req.query;
-  const sortKey = SORT_MAP[req.query.sort] ? req.query.sort : 'data_emissao';
-  const sortCol = SORT_MAP[sortKey];
-  const sortDir = req.query.dir === 'asc' ? 'ASC' : 'DESC';
-
+function construirFiltro(query) {
+  const { empresa, cliente, cidade, simples, dataDe, dataAte } = query;
   const where = [];
   const params = [];
 
@@ -61,6 +53,20 @@ router.get('/lista', async (req, res) => {
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  return { whereSql, params };
+}
+
+router.get('/lista', async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const pageSize = 10;
+  const offset = (page - 1) * pageSize;
+
+  const sortKey = SORT_MAP[req.query.sort] ? req.query.sort : 'data_emissao';
+  const sortCol = SORT_MAP[sortKey];
+  const sortDir = req.query.dir === 'asc' ? 'ASC' : 'DESC';
+
+  const { whereSql, params } = construirFiltro(req.query);
+  const { empresa, cliente, cidade, simples, dataDe, dataAte } = req.query;
 
   const countSql = `SELECT COUNT(*)::int AS total FROM notas_fiscais n ${whereSql}`;
   const { rows: countRows } = await pool.query(countSql, params);
@@ -103,6 +109,19 @@ router.get('/lista', async (req, res) => {
     totalPages,
     total
   });
+});
+
+// Retorna TODOS os ids que batem com o filtro atual (sem paginação) - usado pelo
+// botão "selecionar todas as N notas filtradas" na tela de histórico.
+router.get('/lista/ids', async (req, res) => {
+  try {
+    const { whereSql, params } = construirFiltro(req.query);
+    const { rows } = await pool.query(`SELECT n.id FROM notas_fiscais n ${whereSql}`, params);
+    res.json({ ok: true, ids: rows.map((r) => r.id) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, erro: 'Erro ao buscar as notas filtradas.' });
+  }
 });
 
 router.post('/lista/excluir', async (req, res) => {

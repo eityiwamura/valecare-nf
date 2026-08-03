@@ -27,8 +27,11 @@ function sortLink(col, label) {
   <a href="/upload" class="btn btn-primary">+ Enviar nova planilha</a>
 </div>
 
-<div id="bulk-bar" class="card" style="display:none; margin-bottom:16px; padding:14px 20px; align-items:center; justify-content:space-between;">
-  <span id="bulk-count" style="font-weight:700;"></span>
+<div id="bulk-bar" class="card" style="display:none; margin-bottom:16px; padding:14px 20px; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+  <div>
+    <span id="bulk-count" style="font-weight:700;"></span>
+    <span id="bulk-select-all-wrap" style="margin-left:10px; font-size:13px;"></span>
+  </div>
   <div style="display:flex; gap:8px;">
     <button type="button" class="btn btn-ghost" id="bulk-export-btn">⬇ Exportar selecionadas</button>
     <button type="button" class="btn btn-ghost" id="bulk-delete-btn" style="border-color:var(--tax); color:var(--tax);">🗑 Excluir selecionadas</button>
@@ -175,31 +178,93 @@ function sortLink(col, label) {
 <% } %>
 
 <script>
+  const TOTAL_FILTRADO = <%= total %>;
+  const QUERY_FILTROS = <%- JSON.stringify((function(){
+    const base = Object.assign({}, filtros, { sort, dir });
+    const parts = [];
+    for (const k in base) { if (base[k] !== undefined && base[k] !== null && base[k] !== '') parts.push(k + '=' + encodeURIComponent(base[k])); }
+    return parts.join("&");
+  })()) %>;
+
   const selectAll = document.getElementById('select-all');
   const rowChecks = () => Array.from(document.querySelectorAll('.row-check'));
   const bulkBar = document.getElementById('bulk-bar');
   const bulkCount = document.getElementById('bulk-count');
+  const bulkSelectAllWrap = document.getElementById('bulk-select-all-wrap');
   const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
 
+  // Quando true, a seleção vale para TODAS as notas do filtro atual (todas as
+  // páginas), não só as marcadas na tela. idsModoTotal guarda esses ids.
+  let modoTodasFiltradas = false;
+  let idsModoTotal = [];
+
+  function idsSelecionados() {
+    return modoTodasFiltradas ? idsModoTotal.map(String) : rowChecks().filter(c => c.checked).map(c => c.value);
+  }
+
+  function sairDoModoTotal() {
+    modoTodasFiltradas = false;
+    idsModoTotal = [];
+    syncBulkBar();
+  }
+
   function syncBulkBar() {
-    const checked = rowChecks().filter(c => c.checked);
-    if (checked.length > 0) {
+    const qtd = idsSelecionados().length;
+    if (qtd > 0) {
       bulkBar.style.display = 'flex';
-      bulkCount.textContent = checked.length === 1
-        ? '1 nota selecionada'
-        : checked.length + ' notas selecionadas';
+      if (modoTodasFiltradas) {
+        bulkCount.textContent = qtd === 1 ? '1 nota selecionada (todos os filtros)' : qtd + ' notas selecionadas (todos os filtros)';
+        bulkSelectAllWrap.innerHTML = '<a href="#" id="cancelar-modo-total" style="color:var(--text-muted); text-decoration:underline;">cancelar</a>';
+        document.getElementById('cancelar-modo-total').addEventListener('click', (e) => {
+          e.preventDefault();
+          rowChecks().forEach(cb => { cb.checked = false; });
+          sairDoModoTotal();
+        });
+      } else {
+        bulkCount.textContent = qtd === 1 ? '1 nota selecionada' : qtd + ' notas selecionadas';
+        if (TOTAL_FILTRADO > rowChecks().length) {
+          bulkSelectAllWrap.innerHTML = '<a href="#" id="selecionar-tudo-filtrado" style="color:var(--primary); text-decoration:underline;">selecionar todas as ' + TOTAL_FILTRADO + ' notas filtradas</a>';
+          document.getElementById('selecionar-tudo-filtrado').addEventListener('click', async (e) => {
+            e.preventDefault();
+            bulkSelectAllWrap.textContent = 'Carregando...';
+            try {
+              const resp = await fetch('/lista/ids?' + QUERY_FILTROS);
+              const data = await resp.json();
+              if (resp.ok && data.ok) {
+                modoTodasFiltradas = true;
+                idsModoTotal = data.ids;
+                syncBulkBar();
+              } else {
+                bulkSelectAllWrap.textContent = '';
+                alert(data.erro || 'Erro ao buscar todas as notas filtradas.');
+              }
+            } catch (err) {
+              bulkSelectAllWrap.textContent = '';
+              alert('Erro de conexão ao buscar todas as notas filtradas.');
+            }
+          });
+        } else {
+          bulkSelectAllWrap.innerHTML = '';
+        }
+      }
     } else {
       bulkBar.style.display = 'none';
+      if (modoTodasFiltradas) sairDoModoTotal();
     }
-    if (selectAll) {
+    if (selectAll && !modoTodasFiltradas) {
+      const checked = rowChecks().filter(c => c.checked);
       selectAll.checked = checked.length > 0 && checked.length === rowChecks().length;
     }
   }
 
-  rowChecks().forEach(cb => cb.addEventListener('change', syncBulkBar));
+  rowChecks().forEach(cb => cb.addEventListener('change', () => {
+    if (modoTodasFiltradas) sairDoModoTotal();
+    syncBulkBar();
+  }));
 
   if (selectAll) {
     selectAll.addEventListener('change', () => {
+      if (modoTodasFiltradas) sairDoModoTotal();
       rowChecks().forEach(cb => { cb.checked = selectAll.checked; });
       syncBulkBar();
     });
@@ -230,7 +295,7 @@ function sortLink(col, label) {
 
   if (bulkDeleteBtn) {
     bulkDeleteBtn.addEventListener('click', () => {
-      const ids = rowChecks().filter(c => c.checked).map(c => c.value);
+      const ids = idsSelecionados();
       if (!ids.length) return;
       const msg = ids.length === 1
         ? 'Excluir a nota fiscal selecionada? Essa ação não pode ser desfeita.'
@@ -247,7 +312,7 @@ function sortLink(col, label) {
 
   if (bulkExportBtn) {
     bulkExportBtn.addEventListener('click', () => {
-      const ids = rowChecks().filter(c => c.checked).map(c => c.value);
+      const ids = idsSelecionados();
       if (!ids.length) return;
       exportIdsInput.value = ids.join(',');
       exportForm.submit();

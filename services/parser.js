@@ -45,7 +45,7 @@ function toISODate(d) {
   return d.toISOString().slice(0, 10);
 }
 
-function parsePlanilha(buffer) {
+function parsePlanilha(buffer, empresaSlug) {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const sheetName = wb.SheetNames[0];
   const sheet = wb.Sheets[sheetName];
@@ -63,7 +63,13 @@ function parsePlanilha(buffer) {
     if (HEADER_MAP[norm]) colMap[key] = HEADER_MAP[norm];
   }
 
-  const obrigatorias = ['simplesNacional', 'cidade', 'cliente', 'cnpj', 'valor'];
+  // "Simples Nacional" só é obrigatório para a Valecare Medicina - é o único
+  // campo que ela usa para decidir a isenção de PIS/COFINS/CSLL/IRPJ. A
+  // Valecare Engenharia não usa esse dado (todos os impostos federais são
+  // sempre zero), então a planilha dela não precisa ter essa coluna.
+  const obrigatorias = empresaSlug === 'engenharia'
+    ? ['cidade', 'cliente', 'cnpj', 'valor']
+    : ['simplesNacional', 'cidade', 'cliente', 'cnpj', 'valor'];
   const encontradas = new Set(Object.values(colMap));
   const faltando = obrigatorias.filter((c) => !encontradas.has(c));
   if (faltando.length) {
@@ -71,7 +77,7 @@ function parsePlanilha(buffer) {
       rows: [],
       erros: [
         `Colunas obrigatórias não encontradas na planilha: ${faltando.join(', ')}. ` +
-        `Cabeçalhos esperados: Simples Nacional, Cidade, Cliente, CNPJ, Descrição, Venc., Valor.`
+        `Cabeçalhos esperados: ${empresaSlug === 'engenharia' ? 'Cidade, Cliente, CNPJ, Descrição, Venc., Valor' : 'Simples Nacional, Cidade, Cliente, CNPJ, Descrição, Venc., Valor'}.`
       ]
     };
   }
