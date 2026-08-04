@@ -20,9 +20,6 @@ function badgeRegime(c) {
 <% if (erro) { %>
   <div class="alert alert-error"><%= erro %></div>
 <% } %>
-<% if (sucesso) { %>
-  <div class="alert alert-success">Cliente atualizado com sucesso!</div>
-<% } %>
 
 <form method="GET" action="/clientes" class="filters-form card" style="grid-template-columns: 2fr 1fr auto;">
   <div class="field" style="margin:0;">
@@ -59,14 +56,14 @@ function badgeRegime(c) {
           <th>Regime</th>
           <th>Endereço</th>
           <th>Fonte</th>
-          <th style="width:90px;"></th>
+          <th style="width:110px;"></th>
         </tr>
       </thead>
       <tbody>
         <% clientes.forEach(function(c){ %>
-        <tr>
+        <tr data-cliente-row="<%= c.id %>">
           <td class="text-col" style="font-family:var(--font-mono);"><%= c.cnpj %></td>
-          <td class="text-col"><a href="/clientes/<%= c.id %>" style="color:var(--primary); text-decoration:underline;"><%= c.razao_social || '(sem nome)' %></a></td>
+          <td class="text-col"><%= c.razao_social || '(sem nome)' %></td>
           <td class="text-col"><%= c.cidade || '-' %><%= c.uf ? '/' + c.uf : '' %></td>
           <td class="text-col"><%- badgeRegime(c) %></td>
           <td class="text-col" style="font-size:12px; color:var(--text-muted);">
@@ -74,7 +71,7 @@ function badgeRegime(c) {
           </td>
           <td class="text-col" style="font-size:12px; color:var(--text-muted);"><%= c.fonte %></td>
           <td>
-            <a href="/clientes/<%= c.id %>" class="btn btn-ghost" style="padding:4px 10px; font-size:12px;">Editar</a>
+            <button type="button" class="btn btn-ghost btn-editar-cliente" data-id="<%= c.id %>" style="padding:4px 10px; font-size:12px;">Editar</button>
           </td>
         </tr>
         <% }) %>
@@ -95,5 +92,230 @@ function badgeRegime(c) {
   </div>
 </div>
 <% } %>
+
+<!-- Modal de edição de cliente -->
+<div class="modal-overlay" id="modal-cliente">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="modal-cliente-titulo">Editar cliente</h3>
+      <button type="button" class="modal-close" onclick="fecharModal('modal-cliente')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 14px; font-size:13px; color:var(--text-muted);">
+        <span id="modal-cliente-doc" style="font-family:var(--font-mono);"></span> ·
+        cadastrado via <span id="modal-cliente-fonte"></span>
+      </p>
+
+      <div class="field">
+        <label for="m-razaoSocial">Nome / Razão social</label>
+        <input type="text" id="m-razaoSocial" required />
+      </div>
+
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="m-cidade">Cidade</label>
+          <input type="text" id="m-cidade" />
+        </div>
+        <div class="field">
+          <label for="m-simplesNacional">Regime tributário</label>
+          <select id="m-simplesNacional">
+            <option value="">A confirmar</option>
+            <option value="Não">Não (regime normal)</option>
+            <option value="Simples Nacional">Simples Nacional</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Endereço completo</label>
+        <input type="hidden" id="m-codigoIbge" />
+        <div class="grid cols-4" style="gap:8px;">
+          <div class="field" style="grid-column: span 2; margin-bottom:0;">
+            <input type="text" id="m-logradouro" placeholder="Logradouro" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" id="m-numero" placeholder="Número" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <div style="display:flex; gap:6px;">
+              <input type="text" id="m-cep" placeholder="CEP" />
+              <button type="button" class="btn btn-ghost" id="btn-buscar-cep" title="Buscar endereço pelo CEP" style="padding:0 12px;">🔍</button>
+            </div>
+          </div>
+        </div>
+        <div class="grid cols-3" style="gap:8px; margin-top:8px;">
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" id="m-bairro" placeholder="Bairro" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" id="m-complemento" placeholder="Complemento" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" id="m-uf" placeholder="UF" maxlength="2" style="text-transform:uppercase;" />
+          </div>
+        </div>
+        <div id="modal-cliente-status" class="modal-status" style="color:var(--text-muted);"></div>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between;">
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn btn-ghost" id="btn-reconsultar" style="border-color:var(--primary); color:var(--primary);">🔄 Reconsultar</button>
+        <button type="button" class="btn btn-ghost" id="btn-excluir-cliente" style="border-color:var(--tax); color:var(--tax);">🗑 Excluir</button>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button type="button" class="btn btn-ghost" onclick="fecharModal('modal-cliente')">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-salvar-cliente">Salvar alterações</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const CLIENTES = <%- JSON.stringify(clientes) %>;
+  let clienteAtualId = null;
+  let clienteAtualTipo = null;
+
+  function preencherModalCliente(c) {
+    document.getElementById('modal-cliente-titulo').textContent = c.razao_social || '(sem nome)';
+    document.getElementById('modal-cliente-doc').textContent = (c.tipo_documento === 'cpf' ? 'CPF: ' : 'CNPJ: ') + c.cnpj;
+    document.getElementById('modal-cliente-fonte').textContent = c.fonte;
+    document.getElementById('m-razaoSocial').value = c.razao_social || '';
+    document.getElementById('m-cidade').value = c.cidade || '';
+    document.getElementById('m-simplesNacional').value = c.simples_nacional || '';
+    document.getElementById('m-simplesNacional').disabled = c.tipo_documento === 'cpf';
+    document.getElementById('m-logradouro').value = c.logradouro || '';
+    document.getElementById('m-numero').value = c.numero || '';
+    document.getElementById('m-bairro').value = c.bairro || '';
+    document.getElementById('m-complemento').value = c.complemento || '';
+    document.getElementById('m-cep').value = c.cep || '';
+    document.getElementById('m-uf').value = c.uf || '';
+    document.getElementById('m-codigoIbge').value = c.codigo_ibge || '';
+    document.getElementById('btn-reconsultar').style.display = c.tipo_documento === 'cpf' ? 'none' : '';
+    document.getElementById('modal-cliente-status').textContent = '';
+    clienteAtualId = c.id;
+    clienteAtualTipo = c.tipo_documento;
+  }
+
+  document.querySelectorAll('.btn-editar-cliente').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = parseInt(btn.dataset.id, 10);
+      const cliente = CLIENTES.find((c) => c.id === id);
+      if (!cliente) return;
+      preencherModalCliente(cliente);
+      abrirModal('modal-cliente');
+    });
+  });
+
+  document.getElementById('btn-salvar-cliente').addEventListener('click', async () => {
+    const statusEl = document.getElementById('modal-cliente-status');
+    const btn = document.getElementById('btn-salvar-cliente');
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+    try {
+      const resp = await fetch(`/clientes/${clienteAtualId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          razaoSocial: document.getElementById('m-razaoSocial').value,
+          cidade: document.getElementById('m-cidade').value,
+          simplesNacional: document.getElementById('m-simplesNacional').value,
+          logradouro: document.getElementById('m-logradouro').value,
+          numero: document.getElementById('m-numero').value,
+          bairro: document.getElementById('m-bairro').value,
+          complemento: document.getElementById('m-complemento').value,
+          cep: document.getElementById('m-cep').value,
+          uf: document.getElementById('m-uf').value,
+          codigoIbge: document.getElementById('m-codigoIbge').value
+        })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        window.location.reload();
+      } else {
+        statusEl.style.color = 'var(--tax)';
+        statusEl.textContent = data.erro || 'Erro ao salvar.';
+      }
+    } catch (e) {
+      statusEl.style.color = 'var(--tax)';
+      statusEl.textContent = 'Erro de conexão.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Salvar alterações';
+    }
+  });
+
+  document.getElementById('btn-excluir-cliente').addEventListener('click', async () => {
+    if (!confirm('Excluir este cliente do cadastro? Essa ação não pode ser desfeita.')) return;
+    const resp = await fetch(`/clientes/${clienteAtualId}/excluir`, { method: 'POST' });
+    const data = await resp.json();
+    if (resp.ok && data.ok) {
+      window.location.reload();
+    } else {
+      alert(data.erro || 'Erro ao excluir.');
+    }
+  });
+
+  document.getElementById('btn-reconsultar').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-reconsultar');
+    const statusEl = document.getElementById('modal-cliente-status');
+    btn.disabled = true;
+    btn.textContent = 'Consultando...';
+    statusEl.textContent = '';
+    try {
+      const resp = await fetch(`/clientes/${clienteAtualId}/reconsultar`, { method: 'POST' });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        statusEl.style.color = 'var(--tax)';
+        statusEl.textContent = data.erro || 'Erro ao reconsultar.';
+        return;
+      }
+      preencherModalCliente(data.cliente);
+      statusEl.style.color = 'var(--primary)';
+      statusEl.textContent = data.regimeConhecido
+        ? '✓ Dados atualizados direto da Receita Federal. Clique em Salvar para confirmar.'
+        : '✓ Endereço atualizado, mas o regime ainda não foi confirmado — revise e clique em Salvar.';
+    } catch (e) {
+      statusEl.style.color = 'var(--tax)';
+      statusEl.textContent = 'Erro de conexão ao reconsultar.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔄 Reconsultar';
+    }
+  });
+
+  document.getElementById('btn-buscar-cep').addEventListener('click', async () => {
+    const statusEl = document.getElementById('modal-cliente-status');
+    const cepDigits = document.getElementById('m-cep').value.replace(/\D/g, '');
+    if (cepDigits.length !== 8) {
+      statusEl.style.color = 'var(--tax)';
+      statusEl.textContent = 'CEP precisa ter 8 dígitos.';
+      return;
+    }
+    try {
+      const resp = await fetch('/api/cep/buscar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cep: cepDigits })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        statusEl.style.color = 'var(--tax)';
+        statusEl.textContent = data.erro || 'CEP não encontrado.';
+        return;
+      }
+      const e = data.endereco;
+      document.getElementById('m-logradouro').value = e.logradouro || '';
+      document.getElementById('m-bairro').value = e.bairro || '';
+      document.getElementById('m-uf').value = e.uf || '';
+      document.getElementById('m-cidade').value = e.cidade || '';
+      document.getElementById('m-codigoIbge').value = e.codigoIbge || '';
+      statusEl.style.color = 'var(--primary)';
+      statusEl.textContent = '✓ Endereço preenchido pelo CEP.';
+    } catch (e) {
+      statusEl.style.color = 'var(--tax)';
+      statusEl.textContent = 'Erro de conexão ao buscar o CEP.';
+    }
+  });
+</script>
 
 <%- include('partials/foot') %>

@@ -48,16 +48,24 @@ function normalizeText(str) {
     .toLowerCase();
 }
 
+// Valores que costumam indicar "Simples Nacional = sim" em planilhas, além do
+// texto completo "Simples Nacional" (ex: coluna preenchida só com "Sim").
+const MARCADORES_SIM = new Set(['sim', 's', 'x', '1', 'true', 'verdadeiro']);
+const MARCADORES_PESSOA_FISICA = new Set(['pf', 'pessoa fisica']);
+
 // Isento de PIS/COFINS/CSLL: Simples Nacional ou Pessoa Física
 function isIsentoTrio(valorCampo) {
   const n = normalizeText(valorCampo);
-  return n.includes('simples') || n.includes('fisica');
+  if (!n) return false;
+  return n.includes('simples') || n.includes('fisica') ||
+    MARCADORES_SIM.has(n) || MARCADORES_PESSOA_FISICA.has(n);
 }
 
 // Isento de IRPJ: apenas Pessoa Física (Simples Nacional passou a pagar IRPJ)
 function isIsentoIrpj(valorCampo) {
   const n = normalizeText(valorCampo);
-  return n.includes('fisica');
+  if (!n) return false;
+  return n.includes('fisica') || MARCADORES_PESSOA_FISICA.has(n);
 }
 
 function isTaubate(cidade) {

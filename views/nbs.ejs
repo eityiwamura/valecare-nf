@@ -9,67 +9,72 @@
     <h1>NBS — <%= codigoServico.codigo %><% if (codigoServico.descricao) { %> <span style="color:var(--text-muted); font-weight:500;">(<%= codigoServico.descricao %>)</span><% } %></h1>
     <p>Cadastre os NBS (Nomenclatura Brasileira de Serviços) vinculados a este código de serviço.</p>
   </div>
+  <button type="button" class="btn btn-primary" onclick="abrirModal('modal-nbs')">+ Novo NBS</button>
 </div>
 
 <% if (erro) { %>
   <div class="alert alert-error"><%= erro %></div>
 <% } %>
-<% if (sucesso) { %>
-  <div class="alert alert-success">NBS salvo com sucesso!</div>
-<% } %>
 
-<div class="grid cols-2" style="align-items:start;">
-  <div class="card">
-    <h3 style="margin-top:0;">Novo NBS</h3>
-    <form method="POST" action="/nbs">
-      <input type="hidden" name="codigoServicoId" value="<%= codigoServico.id %>" />
-      <div class="field">
-        <label for="codigo">Código NBS</label>
-        <input type="text" name="codigo" id="codigo" placeholder="Ex: 1.0901.10.00" required />
-      </div>
-      <div class="field">
-        <label for="descricao">Descrição</label>
-        <input type="text" name="descricao" id="descricao" placeholder="Ex: Serviços médicos" />
-      </div>
-      <button class="btn btn-primary" type="submit" style="width:100%;">Salvar NBS</button>
-    </form>
-  </div>
+<div class="card" style="padding:0; overflow-x:auto;">
+  <% if (!nbsList.length) { %>
+    <div class="empty-state">
+      <div class="icon">🏷️</div>
+      <div>Nenhum NBS cadastrado para este código ainda.</div>
+    </div>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr>
+          <th>Código NBS</th>
+          <th>Descrição</th>
+          <th>Indicadores</th>
+          <th style="width:40px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% nbsList.forEach(function(n){ %>
+        <tr data-nbs-id="<%= n.id %>">
+          <td class="text-col" style="font-family:var(--font-mono); font-weight:700;"><%= n.codigo %></td>
+          <td class="text-col"><%= n.descricao || '-' %></td>
+          <td class="text-col">
+            <a href="/nbs/<%= n.id %>/indicadores" style="color:var(--primary); text-decoration:underline;">
+              <%= n.total_indicadores %> indicador(es) →
+            </a>
+          </td>
+          <td>
+            <button type="button" class="nbs-delete-btn" data-id="<%= n.id %>" title="Excluir"
+              style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:15px;">🗑</button>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
 
-  <div class="card" style="padding:0; overflow-x:auto;">
-    <% if (!nbsList.length) { %>
-      <div class="empty-state">
-        <div class="icon">🏷️</div>
-        <div>Nenhum NBS cadastrado para este código ainda.</div>
+<!-- Modal de novo NBS -->
+<div class="modal-overlay" id="modal-nbs">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <h3>Novo NBS</h3>
+      <button type="button" class="modal-close" onclick="fecharModal('modal-nbs')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="m-codigo">Código NBS</label>
+        <input type="text" id="m-codigo" placeholder="Ex: 1.0901.10.00" required />
       </div>
-    <% } else { %>
-      <table>
-        <thead>
-          <tr>
-            <th>Código NBS</th>
-            <th>Descrição</th>
-            <th>Indicadores</th>
-            <th style="width:40px;"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <% nbsList.forEach(function(n){ %>
-          <tr data-nbs-id="<%= n.id %>">
-            <td class="text-col" style="font-family:var(--font-mono); font-weight:700;"><%= n.codigo %></td>
-            <td class="text-col"><%= n.descricao || '-' %></td>
-            <td class="text-col">
-              <a href="/nbs/<%= n.id %>/indicadores" style="color:var(--primary); text-decoration:underline;">
-                <%= n.total_indicadores %> indicador(es) →
-              </a>
-            </td>
-            <td>
-              <button type="button" class="nbs-delete-btn" data-id="<%= n.id %>" title="Excluir"
-                style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:15px;">🗑</button>
-            </td>
-          </tr>
-          <% }) %>
-        </tbody>
-      </table>
-    <% } %>
+      <div class="field">
+        <label for="m-descricao">Descrição</label>
+        <input type="text" id="m-descricao" placeholder="Ex: Serviços médicos" />
+      </div>
+      <div id="modal-nbs-status" class="modal-status" style="color:var(--tax);"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="fecharModal('modal-nbs')">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="btn-salvar-nbs">Salvar NBS</button>
+    </div>
   </div>
 </div>
 
@@ -87,6 +92,37 @@
       if (resp.ok && data.ok) window.location.reload();
       else alert(data.erro || 'Erro ao excluir.');
     });
+  });
+
+  document.getElementById('btn-salvar-nbs').addEventListener('click', async () => {
+    const statusEl = document.getElementById('modal-nbs-status');
+    const btn = document.getElementById('btn-salvar-nbs');
+    const codigo = document.getElementById('m-codigo').value;
+    const descricao = document.getElementById('m-descricao').value;
+    if (!codigo) {
+      statusEl.textContent = 'Informe o código NBS.';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+    try {
+      const resp = await fetch('/nbs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigoServicoId: <%= codigoServico.id %>, codigo, descricao })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        window.location.reload();
+      } else {
+        statusEl.textContent = data.erro || 'Erro ao salvar.';
+      }
+    } catch (e) {
+      statusEl.textContent = 'Erro de conexão.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Salvar NBS';
+    }
   });
 </script>
 

@@ -11,61 +11,66 @@
     <h1>Classificações Tributárias — Indicador <%= indicador.codigo %><% if (indicador.descricao) { %> <span style="color:var(--text-muted); font-weight:500;">(<%= indicador.descricao %>)</span><% } %></h1>
     <p>Cadastre as classificações tributárias vinculadas a este indicador de operação.</p>
   </div>
+  <button type="button" class="btn btn-primary" onclick="abrirModal('modal-classificacao')">+ Nova classificação</button>
 </div>
 
 <% if (erro) { %>
   <div class="alert alert-error"><%= erro %></div>
 <% } %>
-<% if (sucesso) { %>
-  <div class="alert alert-success">Classificação salva com sucesso!</div>
-<% } %>
 
-<div class="grid cols-2" style="align-items:start;">
-  <div class="card">
-    <h3 style="margin-top:0;">Nova classificação</h3>
-    <form method="POST" action="/classificacoes">
-      <input type="hidden" name="indicadorOperacaoId" value="<%= indicador.id %>" />
-      <div class="field">
-        <label for="codigo">Código da classificação</label>
-        <input type="text" name="codigo" id="codigo" placeholder="Ex: 00" required />
-      </div>
-      <div class="field">
-        <label for="descricao">Descrição</label>
-        <input type="text" name="descricao" id="descricao" placeholder="Ex: Tributável integralmente" />
-      </div>
-      <button class="btn btn-primary" type="submit" style="width:100%;">Salvar classificação</button>
-    </form>
-  </div>
+<div class="card" style="padding:0; overflow-x:auto;">
+  <% if (!classificacoes.length) { %>
+    <div class="empty-state">
+      <div class="icon">🏷️</div>
+      <div>Nenhuma classificação cadastrada para este indicador ainda.</div>
+    </div>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr>
+          <th>Código</th>
+          <th>Descrição</th>
+          <th style="width:40px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% classificacoes.forEach(function(ct){ %>
+        <tr data-classificacao-id="<%= ct.id %>">
+          <td class="text-col" style="font-family:var(--font-mono); font-weight:700;"><%= ct.codigo %></td>
+          <td class="text-col"><%= ct.descricao || '-' %></td>
+          <td>
+            <button type="button" class="classificacao-delete-btn" data-id="<%= ct.id %>" title="Excluir"
+              style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:15px;">🗑</button>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
 
-  <div class="card" style="padding:0; overflow-x:auto;">
-    <% if (!classificacoes.length) { %>
-      <div class="empty-state">
-        <div class="icon">🏷️</div>
-        <div>Nenhuma classificação cadastrada para este indicador ainda.</div>
+<!-- Modal de nova classificação -->
+<div class="modal-overlay" id="modal-classificacao">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <h3>Nova classificação tributária</h3>
+      <button type="button" class="modal-close" onclick="fecharModal('modal-classificacao')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="m-codigo">Código da classificação</label>
+        <input type="text" id="m-codigo" placeholder="Ex: 00" required />
       </div>
-    <% } else { %>
-      <table>
-        <thead>
-          <tr>
-            <th>Código</th>
-            <th>Descrição</th>
-            <th style="width:40px;"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <% classificacoes.forEach(function(ct){ %>
-          <tr data-classificacao-id="<%= ct.id %>">
-            <td class="text-col" style="font-family:var(--font-mono); font-weight:700;"><%= ct.codigo %></td>
-            <td class="text-col"><%= ct.descricao || '-' %></td>
-            <td>
-              <button type="button" class="classificacao-delete-btn" data-id="<%= ct.id %>" title="Excluir"
-                style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:15px;">🗑</button>
-            </td>
-          </tr>
-          <% }) %>
-        </tbody>
-      </table>
-    <% } %>
+      <div class="field">
+        <label for="m-descricao">Descrição</label>
+        <input type="text" id="m-descricao" placeholder="Ex: Tributável integralmente" />
+      </div>
+      <div id="modal-classificacao-status" class="modal-status" style="color:var(--tax);"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="fecharModal('modal-classificacao')">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="btn-salvar-classificacao">Salvar classificação</button>
+    </div>
   </div>
 </div>
 
@@ -83,6 +88,37 @@
       if (resp.ok && data.ok) window.location.reload();
       else alert(data.erro || 'Erro ao excluir.');
     });
+  });
+
+  document.getElementById('btn-salvar-classificacao').addEventListener('click', async () => {
+    const statusEl = document.getElementById('modal-classificacao-status');
+    const btn = document.getElementById('btn-salvar-classificacao');
+    const codigo = document.getElementById('m-codigo').value;
+    const descricao = document.getElementById('m-descricao').value;
+    if (!codigo) {
+      statusEl.textContent = 'Informe o código da classificação.';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+    try {
+      const resp = await fetch('/classificacoes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ indicadorOperacaoId: <%= indicador.id %>, codigo, descricao })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        window.location.reload();
+      } else {
+        statusEl.textContent = data.erro || 'Erro ao salvar.';
+      }
+    } catch (e) {
+      statusEl.textContent = 'Erro de conexão.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Salvar classificação';
+    }
   });
 </script>
 

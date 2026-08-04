@@ -296,3 +296,43 @@ tbody tr:hover { background: var(--surface-2); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---------- Modal reutilizável para edição em popup ---------- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(10, 20, 16, 0.5);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000; padding: 20px;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.modal-overlay.open { opacity: 1; pointer-events: auto; }
+[data-theme="dark"] .modal-overlay { background: rgba(0, 0, 0, 0.65); }
+
+.modal-box {
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px -12px rgba(0,0,0,0.35);
+  width: 100%; max-width: 560px;
+  max-height: 88vh; overflow-y: auto;
+  transform: translateY(8px) scale(0.98);
+  transition: transform 0.15s ease;
+}
+.modal-overlay.open .modal-box { transform: translateY(0) scale(1); }
+
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { margin: 0; font-size: 17px; font-weight: 800; }
+.modal-close {
+  background: none; border: none; cursor: pointer; font-size: 18px;
+  color: var(--text-muted); padding: 4px 8px; border-radius: 6px; line-height: 1;
+}
+.modal-close:hover { background: var(--surface-2); color: var(--text); }
+.modal-body { padding: 20px 22px; }
+.modal-footer {
+  padding: 16px 22px; border-top: 1px solid var(--border);
+  display: flex; gap: 8px; justify-content: flex-end;
+}
+.modal-status { font-size: 12px; margin-top: 8px; min-height: 16px; }

@@ -46,12 +46,6 @@ router.get('/clientes', async (req, res) => {
   });
 });
 
-router.get('/clientes/:id', async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
-  if (!rows.length) return res.redirect('/clientes');
-  res.render('cliente-editar', { cliente: rows[0], erro: null });
-});
-
 router.post('/clientes/:id', async (req, res) => {
   try {
     const {
@@ -59,23 +53,23 @@ router.post('/clientes/:id', async (req, res) => {
       codigoIbge, cidade, uf, simplesNacional
     } = req.body;
 
-    await pool.query(
+    const { rows } = await pool.query(
       `UPDATE clientes SET
         razao_social = $1, logradouro = $2, numero = $3, complemento = $4, bairro = $5,
         cep = $6, codigo_ibge = $7, cidade = $8, uf = $9, simples_nacional = $10,
         fonte = 'manual', atualizado_em = now()
-       WHERE id = $11`,
+       WHERE id = $11
+       RETURNING *`,
       [
         razaoSocial || null, logradouro || null, numero || null, complemento || null, bairro || null,
         cep || null, codigoIbge || null, cidade || null, uf || null, simplesNacional || null,
         req.params.id
       ]
     );
-    res.redirect('/clientes?ok=1');
+    res.json({ ok: true, cliente: rows[0] });
   } catch (err) {
     console.error(err);
-    const { rows } = await pool.query('SELECT * FROM clientes WHERE id = $1', [req.params.id]);
-    res.render('cliente-editar', { cliente: rows[0], erro: 'Erro ao salvar as alterações.' });
+    res.status(500).json({ ok: false, erro: 'Erro ao salvar as alterações.' });
   }
 });
 

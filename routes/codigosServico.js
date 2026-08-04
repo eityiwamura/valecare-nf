@@ -14,37 +14,28 @@ router.get('/codigos-servico', async (req, res) => {
     JOIN empresas e ON e.id = c.empresa_id
     ORDER BY e.nome, c.codigo
   `);
-  res.render('codigos-servico', { empresas, codigos, erro: null, sucesso: req.query.ok === '1' });
+  res.render('codigos-servico', { empresas, codigos, erro: null });
 });
 
 router.post('/codigos-servico', async (req, res) => {
   try {
     const { empresaId, codigo, descricao } = req.body;
     if (!empresaId || !codigo) {
-      return renderErroCodigos(res, 'Selecione a empresa e informe o código.');
+      return res.status(400).json({ ok: false, erro: 'Selecione a empresa e informe o código.' });
     }
-    await pool.query(
+    const { rows } = await pool.query(
       `INSERT INTO codigos_servico (empresa_id, codigo, descricao)
        VALUES ($1, $2, $3)
-       ON CONFLICT (empresa_id, codigo) DO UPDATE SET descricao = $3`,
+       ON CONFLICT (empresa_id, codigo) DO UPDATE SET descricao = $3
+       RETURNING *`,
       [empresaId, codigo.trim(), (descricao || '').trim() || null]
     );
-    res.redirect('/codigos-servico?ok=1');
+    res.json({ ok: true, codigo: rows[0] });
   } catch (err) {
     console.error(err);
-    renderErroCodigos(res, 'Erro ao salvar o código de serviço.');
+    res.status(500).json({ ok: false, erro: 'Erro ao salvar o código de serviço.' });
   }
 });
-
-async function renderErroCodigos(res, erro) {
-  const { rows: empresas } = await pool.query('SELECT * FROM empresas ORDER BY nome');
-  const { rows: codigos } = await pool.query(`
-    SELECT c.*, e.nome AS empresa_nome,
-      (SELECT COUNT(*) FROM nbs n WHERE n.codigo_servico_id = c.id)::int AS total_nbs
-    FROM codigos_servico c JOIN empresas e ON e.id = c.empresa_id ORDER BY e.nome, c.codigo
-  `);
-  res.render('codigos-servico', { empresas, codigos, erro, sucesso: false });
-}
 
 router.post('/codigos-servico/excluir', async (req, res) => {
   try {
@@ -69,29 +60,25 @@ router.get('/codigos-servico/:id/nbs', async (req, res) => {
     SELECT n.*, (SELECT COUNT(*) FROM indicadores_operacao i WHERE i.nbs_id = n.id)::int AS total_indicadores
     FROM nbs n WHERE n.codigo_servico_id = $1 ORDER BY n.codigo
   `, [req.params.id]);
-  res.render('nbs', { codigoServico: codigoRows[0], nbsList, erro: null, sucesso: req.query.ok === '1' });
+  res.render('nbs', { codigoServico: codigoRows[0], nbsList, erro: null });
 });
 
 router.post('/nbs', async (req, res) => {
-  const { codigoServicoId, codigo, descricao } = req.body;
   try {
-    if (!codigoServicoId || !codigo) throw new Error('Informe o código NBS.');
-    await pool.query(
+    const { codigoServicoId, codigo, descricao } = req.body;
+    if (!codigoServicoId || !codigo) {
+      return res.status(400).json({ ok: false, erro: 'Informe o código NBS.' });
+    }
+    const { rows } = await pool.query(
       `INSERT INTO nbs (codigo_servico_id, codigo, descricao) VALUES ($1,$2,$3)
-       ON CONFLICT (codigo_servico_id, codigo) DO UPDATE SET descricao = $3`,
+       ON CONFLICT (codigo_servico_id, codigo) DO UPDATE SET descricao = $3
+       RETURNING *`,
       [codigoServicoId, codigo.trim(), (descricao || '').trim() || null]
     );
-    res.redirect(`/codigos-servico/${codigoServicoId}/nbs?ok=1`);
+    res.json({ ok: true, nbs: rows[0] });
   } catch (err) {
-    const { rows: codigoRows } = await pool.query(
-      `SELECT c.*, e.nome AS empresa_nome FROM codigos_servico c JOIN empresas e ON e.id = c.empresa_id WHERE c.id = $1`,
-      [codigoServicoId]
-    );
-    const { rows: nbsList } = await pool.query(`
-      SELECT n.*, (SELECT COUNT(*) FROM indicadores_operacao i WHERE i.nbs_id = n.id)::int AS total_indicadores
-      FROM nbs n WHERE n.codigo_servico_id = $1 ORDER BY n.codigo
-    `, [codigoServicoId]);
-    res.render('nbs', { codigoServico: codigoRows[0], nbsList, erro: err.message || 'Erro ao salvar o NBS.', sucesso: false });
+    console.error(err);
+    res.status(500).json({ ok: false, erro: 'Erro ao salvar o NBS.' });
   }
 });
 
@@ -118,29 +105,25 @@ router.get('/nbs/:id/indicadores', async (req, res) => {
     SELECT i.*, (SELECT COUNT(*) FROM classificacoes_tributarias ct WHERE ct.indicador_operacao_id = i.id)::int AS total_classificacoes
     FROM indicadores_operacao i WHERE i.nbs_id = $1 ORDER BY i.codigo
   `, [req.params.id]);
-  res.render('indicadores', { nbs: nbsRows[0], indicadores, erro: null, sucesso: req.query.ok === '1' });
+  res.render('indicadores', { nbs: nbsRows[0], indicadores, erro: null });
 });
 
 router.post('/indicadores', async (req, res) => {
-  const { nbsId, codigo, descricao } = req.body;
   try {
-    if (!nbsId || !codigo) throw new Error('Informe o indicador de operação.');
-    await pool.query(
+    const { nbsId, codigo, descricao } = req.body;
+    if (!nbsId || !codigo) {
+      return res.status(400).json({ ok: false, erro: 'Informe o indicador de operação.' });
+    }
+    const { rows } = await pool.query(
       `INSERT INTO indicadores_operacao (nbs_id, codigo, descricao) VALUES ($1,$2,$3)
-       ON CONFLICT (nbs_id, codigo) DO UPDATE SET descricao = $3`,
+       ON CONFLICT (nbs_id, codigo) DO UPDATE SET descricao = $3
+       RETURNING *`,
       [nbsId, codigo.trim(), (descricao || '').trim() || null]
     );
-    res.redirect(`/nbs/${nbsId}/indicadores?ok=1`);
+    res.json({ ok: true, indicador: rows[0] });
   } catch (err) {
-    const { rows: nbsRows } = await pool.query(`
-      SELECT n.*, c.codigo AS codigo_servico_codigo, c.id AS codigo_servico_id, c.empresa_id
-      FROM nbs n JOIN codigos_servico c ON c.id = n.codigo_servico_id WHERE n.id = $1
-    `, [nbsId]);
-    const { rows: indicadores } = await pool.query(`
-      SELECT i.*, (SELECT COUNT(*) FROM classificacoes_tributarias ct WHERE ct.indicador_operacao_id = i.id)::int AS total_classificacoes
-      FROM indicadores_operacao i WHERE i.nbs_id = $1 ORDER BY i.codigo
-    `, [nbsId]);
-    res.render('indicadores', { nbs: nbsRows[0], indicadores, erro: err.message || 'Erro ao salvar o indicador.', sucesso: false });
+    console.error(err);
+    res.status(500).json({ ok: false, erro: 'Erro ao salvar o indicador.' });
   }
 });
 
@@ -170,32 +153,25 @@ router.get('/indicadores/:id/classificacoes', async (req, res) => {
     'SELECT * FROM classificacoes_tributarias WHERE indicador_operacao_id = $1 ORDER BY codigo',
     [req.params.id]
   );
-  res.render('classificacoes', { indicador: indicadorRows[0], classificacoes, erro: null, sucesso: req.query.ok === '1' });
+  res.render('classificacoes', { indicador: indicadorRows[0], classificacoes, erro: null });
 });
 
 router.post('/classificacoes', async (req, res) => {
-  const { indicadorOperacaoId, codigo, descricao } = req.body;
   try {
-    if (!indicadorOperacaoId || !codigo) throw new Error('Informe a classificação tributária.');
-    await pool.query(
+    const { indicadorOperacaoId, codigo, descricao } = req.body;
+    if (!indicadorOperacaoId || !codigo) {
+      return res.status(400).json({ ok: false, erro: 'Informe a classificação tributária.' });
+    }
+    const { rows } = await pool.query(
       `INSERT INTO classificacoes_tributarias (indicador_operacao_id, codigo, descricao) VALUES ($1,$2,$3)
-       ON CONFLICT (indicador_operacao_id, codigo) DO UPDATE SET descricao = $3`,
+       ON CONFLICT (indicador_operacao_id, codigo) DO UPDATE SET descricao = $3
+       RETURNING *`,
       [indicadorOperacaoId, codigo.trim(), (descricao || '').trim() || null]
     );
-    res.redirect(`/indicadores/${indicadorOperacaoId}/classificacoes?ok=1`);
+    res.json({ ok: true, classificacao: rows[0] });
   } catch (err) {
-    const { rows: indicadorRows } = await pool.query(`
-      SELECT i.*, n.codigo AS nbs_codigo, n.id AS nbs_id, c.codigo AS codigo_servico_codigo
-      FROM indicadores_operacao i
-      JOIN nbs n ON n.id = i.nbs_id
-      JOIN codigos_servico c ON c.id = n.codigo_servico_id
-      WHERE i.id = $1
-    `, [indicadorOperacaoId]);
-    const { rows: classificacoes } = await pool.query(
-      'SELECT * FROM classificacoes_tributarias WHERE indicador_operacao_id = $1 ORDER BY codigo',
-      [indicadorOperacaoId]
-    );
-    res.render('classificacoes', { indicador: indicadorRows[0], classificacoes, erro: err.message || 'Erro ao salvar a classificação.', sucesso: false });
+    console.error(err);
+    res.status(500).json({ ok: false, erro: 'Erro ao salvar a classificação.' });
   }
 });
 
