@@ -1,0 +1,99 @@
+<%- include('partials/head', { title: 'Clientes' }) %>
+
+<%
+function badgeRegime(c) {
+  if (c.tipo_documento === 'cpf') return '<span class="badge badge-pf">Pessoa Física</span>';
+  const s = (c.simples_nacional || '').toLowerCase();
+  if (s.includes('simples')) return '<span class="badge badge-simples">Simples Nacional</span>';
+  if (s === 'nao' || s === 'não') return '<span class="badge badge-nao">Não</span>';
+  return '<span class="badge" style="background:var(--surface-2); color:var(--text-muted);">A confirmar</span>';
+}
+%>
+
+<div class="page-header">
+  <div>
+    <h1>Clientes cadastrados</h1>
+    <p><%= total %> cliente(s) — alimentado automaticamente pelos uploads e lançamentos manuais</p>
+  </div>
+</div>
+
+<% if (erro) { %>
+  <div class="alert alert-error"><%= erro %></div>
+<% } %>
+<% if (sucesso) { %>
+  <div class="alert alert-success">Cliente atualizado com sucesso!</div>
+<% } %>
+
+<form method="GET" action="/clientes" class="filters-form card" style="grid-template-columns: 2fr 1fr auto;">
+  <div class="field" style="margin:0;">
+    <label>Buscar</label>
+    <input type="text" name="busca" value="<%= filtros.busca || '' %>" placeholder="Nome, cidade ou CNPJ/CPF..." />
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Tipo</label>
+    <select name="tipo">
+      <option value="">Todos</option>
+      <option value="cnpj" <%= filtros.tipo === 'cnpj' ? 'selected' : '' %>>CNPJ</option>
+      <option value="cpf" <%= filtros.tipo === 'cpf' ? 'selected' : '' %>>CPF</option>
+    </select>
+  </div>
+  <div class="actions">
+    <button class="btn btn-primary" type="submit">Filtrar</button>
+    <a class="btn btn-ghost" href="/clientes">Limpar</a>
+  </div>
+</form>
+
+<div class="card" style="padding:0; overflow-x:auto;">
+  <% if (!clientes.length) { %>
+    <div class="empty-state">
+      <div class="icon">👥</div>
+      <div>Nenhum cliente encontrado.</div>
+    </div>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr>
+          <th>CNPJ/CPF</th>
+          <th>Nome / Razão social</th>
+          <th>Cidade</th>
+          <th>Regime</th>
+          <th>Endereço</th>
+          <th>Fonte</th>
+          <th style="width:90px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% clientes.forEach(function(c){ %>
+        <tr>
+          <td class="text-col" style="font-family:var(--font-mono);"><%= c.cnpj %></td>
+          <td class="text-col"><a href="/clientes/<%= c.id %>" style="color:var(--primary); text-decoration:underline;"><%= c.razao_social || '(sem nome)' %></a></td>
+          <td class="text-col"><%= c.cidade || '-' %><%= c.uf ? '/' + c.uf : '' %></td>
+          <td class="text-col"><%- badgeRegime(c) %></td>
+          <td class="text-col" style="font-size:12px; color:var(--text-muted);">
+            <%= c.logradouro ? (c.logradouro + (c.numero ? ', ' + c.numero : '')) : '<span style="color:var(--tax);">sem endereço</span>' %>
+          </td>
+          <td class="text-col" style="font-size:12px; color:var(--text-muted);"><%= c.fonte %></td>
+          <td>
+            <a href="/clientes/<%= c.id %>" class="btn btn-ghost" style="padding:4px 10px; font-size:12px;">Editar</a>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<% if (totalPages > 1) { %>
+<div class="pagination">
+  <span>Página <%= page %> de <%= totalPages %></span>
+  <div class="pages">
+    <% if (page > 1) { %><a href="/clientes?page=<%= page - 1 %>&busca=<%= filtros.busca || '' %>&tipo=<%= filtros.tipo || '' %>">← Anterior</a><% } %>
+    <% for (let p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p++) { %>
+      <% if (p === page) { %><span class="current"><%= p %></span><% } else { %><a href="/clientes?page=<%= p %>&busca=<%= filtros.busca || '' %>&tipo=<%= filtros.tipo || '' %>"><%= p %></a><% } %>
+    <% } %>
+    <% if (page < totalPages) { %><a href="/clientes?page=<%= page + 1 %>&busca=<%= filtros.busca || '' %>&tipo=<%= filtros.tipo || '' %>">Próxima →</a><% } %>
+  </div>
+</div>
+<% } %>
+
+<%- include('partials/foot') %>

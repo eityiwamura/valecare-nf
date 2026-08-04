@@ -10,6 +10,7 @@ const uploadRoutes = require('./routes/upload');
 const notasRoutes = require('./routes/notas');
 const dashboardRoutes = require('./routes/dashboard');
 const codigosServicoRoutes = require('./routes/codigosServico');
+const clientesRoutes = require('./routes/clientes');
 const { requireAuth } = require('./middleware/auth');
 
 const app = express();
@@ -46,6 +47,7 @@ app.use(requireAuth, uploadRoutes);
 app.use(requireAuth, notasRoutes);
 app.use(requireAuth, dashboardRoutes);
 app.use(requireAuth, codigosServicoRoutes);
+app.use(requireAuth, clientesRoutes);
 
 app.get('/', requireAuth, (req, res) => res.redirect('/dashboard'));
 

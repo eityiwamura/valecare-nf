@@ -1,0 +1,190 @@
+<%- include('partials/head', { title: 'Editar cliente' }) %>
+
+<div class="page-header">
+  <div>
+    <p style="margin:0 0 4px; font-size:13px; color:var(--text-muted);">
+      <a href="/clientes" style="color:var(--primary);">Clientes</a> › <%= cliente.razao_social || cliente.cnpj %>
+    </p>
+    <h1><%= cliente.razao_social || '(sem nome)' %></h1>
+    <p><%= cliente.tipo_documento === 'cpf' ? 'CPF' : 'CNPJ' %>: <%= cliente.cnpj %> · cadastrado via <%= cliente.fonte %> · atualizado em <%= new Date(cliente.atualizado_em).toLocaleString('pt-BR') %></p>
+  </div>
+</div>
+
+<% if (erro) { %>
+  <div class="alert alert-error"><%= erro %></div>
+<% } %>
+<div id="reconsulta-status" class="alert" style="display:none;"></div>
+
+<div class="grid cols-2" style="align-items:start;">
+  <div class="card">
+    <form method="POST" action="/clientes/<%= cliente.id %>">
+      <div class="field">
+        <label for="razaoSocial">Nome / Razão social</label>
+        <input type="text" name="razaoSocial" id="razaoSocial" value="<%= cliente.razao_social || '' %>" required />
+      </div>
+
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="cidade">Cidade</label>
+          <input type="text" name="cidade" id="cidade" value="<%= cliente.cidade || '' %>" />
+        </div>
+        <div class="field">
+          <label for="simplesNacional">Regime tributário</label>
+          <select name="simplesNacional" id="simplesNacional" <%= cliente.tipo_documento === 'cpf' ? 'disabled' : '' %>>
+            <option value="">A confirmar</option>
+            <option value="Não" <%= cliente.simples_nacional === 'Não' ? 'selected' : '' %>>Não (regime normal)</option>
+            <option value="Simples Nacional" <%= cliente.simples_nacional === 'Simples Nacional' ? 'selected' : '' %>>Simples Nacional</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Endereço completo</label>
+        <input type="hidden" name="codigoIbge" id="codigoIbge" value="<%= cliente.codigo_ibge || '' %>" />
+        <div class="grid cols-4" style="gap:8px;">
+          <div class="field" style="grid-column: span 2; margin-bottom:0;">
+            <input type="text" name="logradouro" id="logradouro" placeholder="Logradouro" value="<%= cliente.logradouro || '' %>" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="numero" id="numero" placeholder="Número" value="<%= cliente.numero || '' %>" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <div style="display:flex; gap:6px;">
+              <input type="text" name="cep" id="cep" placeholder="CEP" value="<%= cliente.cep || '' %>" />
+              <button type="button" class="btn btn-ghost" id="btn-buscar-cep" title="Buscar endereço pelo CEP" style="padding:0 12px;">🔍</button>
+            </div>
+          </div>
+        </div>
+        <div class="grid cols-3" style="gap:8px; margin-top:8px;">
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="bairro" id="bairro" placeholder="Bairro" value="<%= cliente.bairro || '' %>" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="complemento" id="complemento" placeholder="Complemento" value="<%= cliente.complemento || '' %>" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="uf" id="uf" placeholder="UF" maxlength="2" style="text-transform:uppercase;" value="<%= cliente.uf || '' %>" />
+          </div>
+        </div>
+        <div id="cep-status" style="font-size:12px; margin-top:6px; color:var(--text-muted);">
+          Código IBGE atual: <strong><%= cliente.codigo_ibge || 'não confirmado' %></strong>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="btn btn-primary" type="submit" style="flex:1;">Salvar alterações</button>
+        <% if (cliente.tipo_documento === 'cnpj') { %>
+          <button type="button" class="btn btn-ghost" id="btn-reconsultar">🔄 Reconsultar na Receita</button>
+        <% } %>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Excluir cliente</h3>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      Isso remove só o cadastro (nome, endereço, regime salvos). As NFs que já foram
+      lançadas para esse CNPJ/CPF continuam no histórico normalmente — só não vêm
+      mais preenchidas automaticamente na próxima vez.
+    </p>
+    <button type="button" class="btn btn-ghost" id="btn-excluir-cliente" style="border-color:var(--tax); color:var(--tax); width:100%;">🗑 Excluir cliente</button>
+  </div>
+</div>
+
+<script>
+  document.getElementById('btn-excluir-cliente').addEventListener('click', async () => {
+    if (!confirm('Excluir este cliente do cadastro? Essa ação não pode ser desfeita.')) return;
+    const resp = await fetch('/clientes/<%= cliente.id %>/excluir', { method: 'POST' });
+    const data = await resp.json();
+    if (resp.ok && data.ok) {
+      window.location.href = '/clientes';
+    } else {
+      alert(data.erro || 'Erro ao excluir.');
+    }
+  });
+
+  const btnReconsultar = document.getElementById('btn-reconsultar');
+  if (btnReconsultar) {
+    btnReconsultar.addEventListener('click', async () => {
+      const statusEl = document.getElementById('reconsulta-status');
+      btnReconsultar.disabled = true;
+      btnReconsultar.textContent = 'Consultando...';
+      statusEl.style.display = 'none';
+      try {
+        const resp = await fetch('/clientes/<%= cliente.id %>/reconsultar', { method: 'POST' });
+        const data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          statusEl.className = 'alert alert-error';
+          statusEl.textContent = data.erro || 'Erro ao reconsultar.';
+          statusEl.style.display = 'block';
+          return;
+        }
+        const c = data.cliente;
+        document.getElementById('razaoSocial').value = c.razao_social || '';
+        document.getElementById('cidade').value = c.cidade || '';
+        document.getElementById('logradouro').value = c.logradouro || '';
+        document.getElementById('numero').value = c.numero || '';
+        document.getElementById('bairro').value = c.bairro || '';
+        document.getElementById('complemento').value = c.complemento || '';
+        document.getElementById('cep').value = c.cep || '';
+        document.getElementById('uf').value = c.uf || '';
+        document.getElementById('codigoIbge').value = c.codigo_ibge || '';
+        if (data.regimeConhecido) {
+          document.getElementById('simplesNacional').value = c.simples_nacional === 'Simples Nacional' ? 'Simples Nacional' : 'Não';
+        }
+        statusEl.className = 'alert alert-success';
+        statusEl.textContent = data.regimeConhecido
+          ? '✓ Dados atualizados direto da Receita Federal. Clique em Salvar para confirmar.'
+          : '✓ Endereço atualizado, mas o regime tributário ainda não pôde ser confirmado — revise manualmente. Clique em Salvar para confirmar.';
+        statusEl.style.display = 'block';
+      } catch (e) {
+        statusEl.className = 'alert alert-error';
+        statusEl.textContent = 'Erro de conexão ao reconsultar.';
+        statusEl.style.display = 'block';
+      } finally {
+        btnReconsultar.disabled = false;
+        btnReconsultar.textContent = '🔄 Reconsultar na Receita';
+      }
+    });
+  }
+
+  const btnBuscarCep = document.getElementById('btn-buscar-cep');
+  const cepStatus = document.getElementById('cep-status');
+  btnBuscarCep.addEventListener('click', async () => {
+    const cepDigits = document.getElementById('cep').value.replace(/\D/g, '');
+    if (cepDigits.length !== 8) {
+      cepStatus.textContent = 'CEP precisa ter 8 dígitos.';
+      cepStatus.style.color = 'var(--tax)';
+      return;
+    }
+    btnBuscarCep.disabled = true;
+    try {
+      const resp = await fetch('/api/cep/buscar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cep: cepDigits })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        cepStatus.textContent = data.erro || 'CEP não encontrado.';
+        cepStatus.style.color = 'var(--tax)';
+        return;
+      }
+      const e = data.endereco;
+      document.getElementById('logradouro').value = e.logradouro || '';
+      document.getElementById('bairro').value = e.bairro || '';
+      document.getElementById('uf').value = e.uf || '';
+      document.getElementById('cidade').value = e.cidade || '';
+      document.getElementById('codigoIbge').value = e.codigoIbge || '';
+      cepStatus.textContent = '✓ Endereço preenchido pelo CEP. Clique em Salvar para confirmar.';
+      cepStatus.style.color = 'var(--primary)';
+    } catch (e) {
+      cepStatus.textContent = 'Erro de conexão ao buscar o CEP.';
+      cepStatus.style.color = 'var(--tax)';
+    } finally {
+      btnBuscarCep.disabled = false;
+    }
+  });
+</script>
+
+<%- include('partials/foot') %>

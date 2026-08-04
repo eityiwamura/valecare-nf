@@ -94,22 +94,48 @@ async function buscarEnderecoPorCep(cepRaw) {
   throw new Error('CEP não encontrado em nenhuma fonte. Confira o número ou preencha o endereço manualmente.');
 }
 
+function esperar(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Espera crescente entre tentativas (1.5s, 3s, 6s, 12s, 20s, 20s, 20s...),
+ * usada tanto na BrasilAPI quanto no fallback OpenCNPJ - o objetivo é nunca
+ * desistir por causa de limite de requisições, só por CNPJ realmente
+ * inexistente (404) ou depois de esgotar bastante tempo de tentativas.
+ */
+function esperaCrescente(tentativa) {
+  return Math.min(1500 * Math.pow(2, tentativa - 1), 20000);
+}
+
 /**
  * Consulta o CNPJ na BrasilAPI (proxy gratuito e público dos dados da Receita Federal).
- * Não requer chave de API. Lança erro com mensagem amigável em caso de falha.
+ * Não requer chave de API. Em caso de limite de requisições (429) ou bloqueio
+ * temporário (403), espera cada vez mais e tenta de novo — essa consulta não pode
+ * falhar por limite de requisições, só desiste depois de várias tentativas.
  */
-async function buscarClienteBrasilAPI(cnpjDigits) {
+async function buscarClienteBrasilAPI(cnpjDigits, tentativa) {
+  tentativa = tentativa || 1;
+  const MAX_TENTATIVAS = 6;
   let resp;
   try {
     resp = await fetch(`${BRASIL_API_BASE}/${cnpjDigits}`, {
       headers: { Accept: 'application/json', 'User-Agent': USER_AGENT }
     });
   } catch (err) {
+    if (tentativa < MAX_TENTATIVAS) {
+      await esperar(esperaCrescente(tentativa));
+      return buscarClienteBrasilAPI(cnpjDigits, tentativa + 1);
+    }
     throw new Error('BrasilAPI: falha de conexão');
   }
 
   if (resp.status === 404) {
     throw new Error('CNPJ não encontrado na Receita Federal. Confira o número ou preencha os dados manualmente.');
+  }
+  if ((resp.status === 429 || resp.status === 403 || resp.status >= 500) && tentativa < MAX_TENTATIVAS) {
+    await esperar(esperaCrescente(tentativa));
+    return buscarClienteBrasilAPI(cnpjDigits, tentativa + 1);
   }
   if (!resp.ok) {
     throw new Error(`BrasilAPI retornou status ${resp.status}`);
@@ -138,22 +164,33 @@ async function buscarClienteBrasilAPI(cnpjDigits) {
 
 /**
  * Fallback: OpenCNPJ (fonte alternativa, também gratuita e sem chave). Usada quando
- * a BrasilAPI está indisponível ou bloqueando a requisição. Não confirma o Simples
- * Nacional nem o código IBGE na mesma resposta — o Simples volta marcado como
- * "a conferir" e o código IBGE é resolvido à parte via API oficial do IBGE.
+ * a BrasilAPI está indisponível ou bloqueando a requisição. Também tenta várias
+ * vezes com espera crescente antes de desistir. Não confirma o Simples Nacional
+ * na mesma resposta — o Simples volta em branco ("a confirmar") e o código IBGE
+ * é resolvido à parte via API oficial do IBGE.
  */
-async function buscarClienteOpenCNPJ(cnpjDigits) {
+async function buscarClienteOpenCNPJ(cnpjDigits, tentativa) {
+  tentativa = tentativa || 1;
+  const MAX_TENTATIVAS = 5;
   let resp;
   try {
     resp = await fetch(`${OPENCNPJ_BASE}/${cnpjDigits}`, {
       headers: { Accept: 'application/json', 'User-Agent': USER_AGENT }
     });
   } catch (err) {
+    if (tentativa < MAX_TENTATIVAS) {
+      await esperar(esperaCrescente(tentativa));
+      return buscarClienteOpenCNPJ(cnpjDigits, tentativa + 1);
+    }
     throw new Error('OpenCNPJ: falha de conexão');
   }
 
   if (resp.status === 404) {
     throw new Error('CNPJ não encontrado na Receita Federal. Confira o número ou preencha os dados manualmente.');
+  }
+  if ((resp.status === 429 || resp.status === 403 || resp.status >= 500) && tentativa < MAX_TENTATIVAS) {
+    await esperar(esperaCrescente(tentativa));
+    return buscarClienteOpenCNPJ(cnpjDigits, tentativa + 1);
   }
   if (!resp.ok) {
     throw new Error(`OpenCNPJ retornou status ${resp.status}`);
@@ -173,7 +210,7 @@ async function buscarClienteOpenCNPJ(cnpjDigits) {
     cidade: data.municipio || '',
     uf: data.uf || '',
     codigoIbge,
-    simplesNacional: 'Não', // esta fonte não confirma o Simples - revisar manualmente
+    simplesNacional: '', // esta fonte não confirma o Simples - fica em branco para revisão manual (nunca assume "Não")
     situacaoCadastral: data.situacao_cadastral || '',
     regimeConhecido: false
   };
@@ -188,7 +225,22 @@ async function buscarClienteAPI(cnpjDigits) {
       return await buscarClienteOpenCNPJ(cnpjDigits);
     } catch (err2) {
       if (err2.message.includes('não encontrado')) throw err2;
-      throw new Error('Não foi possível consultar o CNPJ em nenhuma das fontes disponíveis. Tente novamente em instantes ou preencha manualmente.');
+
+      // As duas fontes já tentaram várias vezes e falharam. Como essa consulta não
+      // pode falhar por causa de limite de requisições, dá mais uma rodada de
+      // resgate depois de um respiro maior, antes de desistir de vez.
+      await esperar(30000);
+      try {
+        return await buscarClienteBrasilAPI(cnpjDigits);
+      } catch (err3) {
+        if (err3.message.includes('não encontrado')) throw err3;
+        try {
+          return await buscarClienteOpenCNPJ(cnpjDigits);
+        } catch (err4) {
+          if (err4.message.includes('não encontrado')) throw err4;
+          throw new Error('Não foi possível consultar o CNPJ em nenhuma das fontes disponíveis, mesmo após várias tentativas. Tente novamente mais tarde ou preencha manualmente.');
+        }
+      }
     }
   }
 }
@@ -267,11 +319,13 @@ async function resolverCliente(pool, cnpjRaw) {
   }
 
   const local = await buscarClienteLocal(pool, cnpj);
-  if (local && local.codigo_ibge) {
+  if (local && local.codigo_ibge && local.simples_nacional) {
     return { ...local, fonte: 'cadastro' };
   }
 
-  // Cliente novo, ou já cadastrado antes do código IBGE existir no sistema -> (re)consulta
+  // Cliente novo, ou já cadastrado com dado incompleto (sem código IBGE ou sem
+  // confirmar o regime tributário) -> tenta consultar de novo, dando outra
+  // chance de vir da BrasilAPI (que confirma o Simples) em vez do fallback.
   const dadosApi = await buscarClienteAPI(cnpj);
   const salvo = await salvarCliente(pool, cnpj, dadosApi, 'api', 'cnpj');
   return { ...salvo, fonte: local ? 'cadastro' : 'api', regimeConhecido: dadosApi.regimeConhecido };
@@ -302,6 +356,31 @@ async function buscarClienteGenerico(pool, documentoRaw) {
   throw new Error('Documento inválido — informe um CPF (11 dígitos) ou CNPJ (14 dígitos).');
 }
 
+/**
+ * Enriquece o cadastro local (endereço, código IBGE, regime tributário) para uma
+ * lista de CNPJs, um a um com um respiro entre eles - pensada para rodar em
+ * segundo plano (sem prender uma resposta HTTP), já que cada CNPJ pode levar
+ * bastante tempo se a fonte estiver com limite de requisições. Nunca desiste
+ * por causa de limite de requisições - só quando o CNPJ realmente não existe
+ * ou depois de esgotar todas as tentativas de todas as fontes.
+ */
+async function enriquecerClientesEmSegundoPlano(pool, cnpjsUnicos, contexto) {
+  const rotulo = contexto || 'lote';
+  let ok = 0;
+  let falhas = 0;
+  for (const cnpj of cnpjsUnicos) {
+    try {
+      await resolverCliente(pool, cnpj);
+      ok++;
+    } catch (err) {
+      falhas++;
+      console.warn(`[${rotulo}] Não foi possível enriquecer o cadastro do CNPJ ${cnpj}: ${err.message}`);
+    }
+    await esperar(500); // respiro entre CNPJs, além da espera crescente já embutida em cada consulta
+  }
+  console.log(`[${rotulo}] Enriquecimento de clientes concluído: ${ok} ok, ${falhas} falha(s) de ${cnpjsUnicos.length}.`);
+}
+
 module.exports = {
   resolverCliente,
   buscarClienteGenerico,
@@ -309,5 +388,6 @@ module.exports = {
   buscarClienteAPI,
   buscarEnderecoPorCep,
   salvarCliente,
-  salvarClienteFormulario
+  salvarClienteFormulario,
+  enriquecerClientesEmSegundoPlano
 };

@@ -4,7 +4,7 @@ const pool = require('../db/pool');
 const { parsePlanilha } = require('../services/parser');
 const { calcularLoteBruto } = require('../services/calculo');
 const { recalcularGrupos } = require('../services/grupos');
-const { resolverCliente } = require('../services/clientes');
+const { enriquecerClientesEmSegundoPlano } = require('../services/clientes');
 
 const router = express.Router();
 const upload = multer({
@@ -76,18 +76,7 @@ router.post('/upload', upload.single('planilha'), async (req, res) => {
     }
 
     const calculadas = calcularLoteBruto(linhasBrutas, empresa.slug, aliquota);
-
-    // Enriquece o cadastro de clientes (endereço, código IBGE) para cada CNPJ do lote
-    // que ainda não está completo no cadastro local. Não trava o upload se alguma
-    // consulta falhar - a NF é salva do mesmo jeito, só sem o endereço completo.
     const cnpjsUnicos = [...new Set(calculadas.map((r) => r.cnpjNorm).filter((c) => c && c.length === 14))];
-    const CONCORRENCIA = 5;
-    for (let i = 0; i < cnpjsUnicos.length; i += CONCORRENCIA) {
-      const lote = cnpjsUnicos.slice(i, i + CONCORRENCIA);
-      await Promise.all(lote.map((cnpj) => resolverCliente(pool, cnpj).catch((err) => {
-        console.warn(`Não foi possível enriquecer o cadastro do CNPJ ${cnpj}: ${err.message}`);
-      })));
-    }
 
     const client = await pool.connect();
     try {
@@ -131,6 +120,16 @@ router.post('/upload', upload.single('planilha'), async (req, res) => {
 
       await client.query('COMMIT');
       res.redirect(`/upload?ok=1&linhas=${calculadas.length}&lote=${loteId}`);
+
+      // A partir daqui a resposta já foi enviada. O enriquecimento do cadastro de
+      // clientes (endereço, código IBGE, regime tributário) continua em segundo
+      // plano - pode levar bastante tempo se a fonte estiver com limite de
+      // requisições, mas isso nunca deve travar o upload nem fazer a nota falhar.
+      if (cnpjsUnicos.length) {
+        enriquecerClientesEmSegundoPlano(pool, cnpjsUnicos, `lote ${loteId}`).catch((err) => {
+          console.error(`[lote ${loteId}] Erro inesperado no enriquecimento em segundo plano:`, err);
+        });
+      }
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

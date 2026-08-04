@@ -22,7 +22,7 @@ const SORT_MAP = {
 };
 
 function construirFiltro(query) {
-  const { empresa, cliente, cidade, simples, dataDe, dataAte } = query;
+  const { empresa, cliente, cidade, cnpj, simples, dataDe, dataAte } = query;
   const where = [];
   const params = [];
 
@@ -37,6 +37,13 @@ function construirFiltro(query) {
   if (cidade) {
     params.push(`%${cidade}%`);
     where.push(`n.cidade ILIKE $${params.length}`);
+  }
+  if (cnpj) {
+    const digitos = String(cnpj).replace(/\D/g, '');
+    if (digitos) {
+      params.push(`%${digitos}%`);
+      where.push(`n.cnpj_norm ILIKE $${params.length}`);
+    }
   }
   if (simples === 'sim') {
     where.push(`n.simples_nacional ILIKE '%simples%'`);
@@ -66,7 +73,7 @@ router.get('/lista', async (req, res) => {
   const sortDir = req.query.dir === 'asc' ? 'ASC' : 'DESC';
 
   const { whereSql, params } = construirFiltro(req.query);
-  const { empresa, cliente, cidade, simples, dataDe, dataAte } = req.query;
+  const { empresa, cliente, cidade, cnpj, simples, dataDe, dataAte } = req.query;
 
   const countSql = `SELECT COUNT(*)::int AS total FROM notas_fiscais n ${whereSql}`;
   const { rows: countRows } = await pool.query(countSql, params);
@@ -102,7 +109,7 @@ router.get('/lista', async (req, res) => {
     notas,
     totals: totalsRows[0],
     empresas,
-    filtros: { empresa, cliente, cidade, simples, dataDe, dataAte },
+    filtros: { empresa, cliente, cidade, cnpj, simples, dataDe, dataAte },
     sort: sortKey,
     dir: sortDir.toLowerCase(),
     page,
