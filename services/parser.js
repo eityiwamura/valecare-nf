@@ -82,9 +82,11 @@ function mapearColunas(headers) {
 }
 
 function obrigatoriasPara(empresaSlug) {
-  return empresaSlug === 'engenharia'
-    ? ['cidade', 'cliente', 'cnpj', 'valor']
-    : ['simplesNacional', 'cidade', 'cliente', 'cnpj', 'valor'];
+  // Mesmo padrão para as duas empresas: cliente, CNPJ, valor e descrição são
+  // obrigatórios. Cidade e Simples Nacional são opcionais em ambas — se não
+  // vierem, o sistema usa um padrão seguro (cidade vazia = sem ISS; Simples
+  // Nacional vazio = tratado como "Não" na Medicina, sem efeito na Engenharia).
+  return ['cliente', 'cnpj', 'valor', 'descricao'];
 }
 
 function parsePlanilha(buffer, empresaSlug) {
@@ -128,7 +130,7 @@ function parsePlanilha(buffer, empresaSlug) {
       rows: [],
       erros: [
         `Colunas obrigatórias não encontradas na aba "${melhor.sheetName}": ${melhor.faltando.join(', ')}. ` +
-        `Cabeçalhos esperados: ${empresaSlug === 'engenharia' ? 'Cidade, Cliente, CNPJ, Descrição, Venc., Valor' : 'Simples Nacional, Cidade, Cliente, CNPJ, Descrição, Venc., Valor'}.` +
+        `Cabeçalhos esperados (mínimo): Cliente, CNPJ, Descrição, Valor. Cidade e Simples Nacional são opcionais.` +
         (wb.SheetNames.length > 1 ? ` (o arquivo tem ${wb.SheetNames.length} abas: ${wb.SheetNames.join(', ')} — nenhuma delas tem todas as colunas necessárias)` : '')
       ]
     };
