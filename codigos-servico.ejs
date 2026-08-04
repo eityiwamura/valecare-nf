@@ -1,0 +1,140 @@
+<%- include('partials/head', { title: 'Códigos de Serviço' }) %>
+
+<div class="page-header">
+  <div>
+    <h1>Códigos de Serviço</h1>
+    <p>Cadastre os códigos de serviço (NFS-e) de cada empresa para usar no lançamento manual de NF.</p>
+  </div>
+  <button type="button" class="btn btn-primary" onclick="abrirModal('modal-codigo')">+ Novo código</button>
+</div>
+
+<% if (erro) { %>
+  <div class="alert alert-error"><%= erro %></div>
+<% } %>
+
+<div class="card" style="padding:0; overflow-x:auto;">
+  <% if (!codigos.length) { %>
+    <div class="empty-state">
+      <div class="icon">🏷️</div>
+      <div>Nenhum código cadastrado ainda.</div>
+    </div>
+  <% } else { %>
+    <table>
+      <thead>
+        <tr>
+          <th>Empresa</th>
+          <th>Código</th>
+          <th>Descrição</th>
+          <th>NBS cadastrados</th>
+          <th style="width:40px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% codigos.forEach(function(c){ %>
+        <tr data-codigo-id="<%= c.id %>">
+          <td class="text-col"><%= c.empresa_nome %></td>
+          <td class="text-col" style="font-family:var(--font-mono); font-weight:700;"><%= c.codigo %></td>
+          <td class="text-col"><%= c.descricao || '-' %></td>
+          <td class="text-col">
+            <a href="/codigos-servico/<%= c.id %>/nbs" style="color:var(--primary); text-decoration:underline;">
+              <%= c.total_nbs %> NBS →
+            </a>
+          </td>
+          <td>
+            <button type="button" class="codigo-delete-btn" data-id="<%= c.id %>" title="Excluir"
+              style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:15px;">🗑</button>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<!-- Modal de novo código de serviço -->
+<div class="modal-overlay" id="modal-codigo">
+  <div class="modal-box" style="max-width:440px;">
+    <div class="modal-header">
+      <h3>Novo código de serviço</h3>
+      <button type="button" class="modal-close" onclick="fecharModal('modal-codigo')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="m-empresaId">Empresa</label>
+        <select id="m-empresaId" required>
+          <option value="">Selecione...</option>
+          <% empresas.forEach(function(e){ %>
+            <option value="<%= e.id %>"><%= e.nome %></option>
+          <% }) %>
+        </select>
+      </div>
+      <div class="field">
+        <label for="m-codigo">Código</label>
+        <input type="text" id="m-codigo" placeholder="Ex: 4.01" required />
+      </div>
+      <div class="field">
+        <label for="m-descricao">Descrição</label>
+        <input type="text" id="m-descricao" placeholder="Ex: Medicina e biomedicina" />
+      </div>
+      <div id="modal-codigo-status" class="modal-status" style="color:var(--tax);"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="fecharModal('modal-codigo')">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="btn-salvar-codigo">Salvar código</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.codigo-delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Excluir este código de serviço? Isso também remove os NBS, indicadores e classificações vinculados a ele.')) return;
+      const id = btn.dataset.id;
+      const resp = await fetch('/codigos-servico/excluir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        window.location.reload();
+      } else {
+        alert(data.erro || 'Erro ao excluir.');
+      }
+    });
+  });
+
+  document.getElementById('btn-salvar-codigo').addEventListener('click', async () => {
+    const statusEl = document.getElementById('modal-codigo-status');
+    const btn = document.getElementById('btn-salvar-codigo');
+    const empresaId = document.getElementById('m-empresaId').value;
+    const codigo = document.getElementById('m-codigo').value;
+    const descricao = document.getElementById('m-descricao').value;
+    if (!empresaId || !codigo) {
+      statusEl.textContent = 'Selecione a empresa e informe o código.';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+    try {
+      const resp = await fetch('/codigos-servico', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ empresaId, codigo, descricao })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        window.location.reload();
+      } else {
+        statusEl.textContent = data.erro || 'Erro ao salvar.';
+      }
+    } catch (e) {
+      statusEl.textContent = 'Erro de conexão.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Salvar código';
+    }
+  });
+</script>
+
+<%- include('partials/foot') %>

@@ -1,0 +1,567 @@
+<%- include('partials/head', { title: 'Histórico de NFs' }) %>
+
+<%
+function fmt(n) {
+  return Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+function qs(overrides) {
+  const base = Object.assign({}, filtros, { sort, dir, page }, overrides);
+  const parts = [];
+  for (const k in base) {
+    if (base[k] !== undefined && base[k] !== null && base[k] !== '') parts.push(k + '=' + encodeURIComponent(base[k]));
+  }
+  return '/lista?' + parts.join('&');
+}
+function sortLink(col, label) {
+  const nextDir = (sort === col && dir === 'asc') ? 'desc' : 'asc';
+  const arrow = sort === col ? (dir === 'asc' ? '↑' : '↓') : '';
+  return '<a href="' + qs({ sort: col, dir: nextDir, page: 1 }) + '">' + label + ' ' + arrow + '</a>';
+}
+%>
+
+<div class="page-header">
+  <div>
+    <h1>Histórico de Notas Fiscais</h1>
+    <p><%= total %> nota(s) encontrada(s)</p>
+  </div>
+  <a href="/upload" class="btn btn-primary">+ Enviar nova planilha</a>
+</div>
+
+<div id="bulk-bar" class="card" style="display:none; margin-bottom:16px; padding:14px 20px; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+  <div>
+    <span id="bulk-count" style="font-weight:700;"></span>
+    <span id="bulk-select-all-wrap" style="margin-left:10px; font-size:13px;"></span>
+  </div>
+  <div style="display:flex; gap:8px;">
+    <button type="button" class="btn btn-ghost" id="bulk-export-btn">⬇ Exportar selecionadas</button>
+    <button type="button" class="btn btn-ghost" id="bulk-delete-btn" style="border-color:var(--tax); color:var(--tax);">🗑 Excluir selecionadas</button>
+  </div>
+</div>
+
+<form method="POST" action="/lista/exportar" id="export-form" style="display:none;">
+  <input type="hidden" name="ids" id="export-ids" />
+</form>
+
+<form method="GET" action="/lista" class="filters-form card">
+  <div class="field" style="margin:0;">
+    <label>Empresa</label>
+    <select name="empresa">
+      <option value="">Todas</option>
+      <% empresas.forEach(function(e){ %>
+        <option value="<%= e.id %>" <%= String(filtros.empresa) === String(e.id) ? 'selected' : '' %>><%= e.nome %></option>
+      <% }) %>
+    </select>
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Cliente</label>
+    <input type="text" name="cliente" value="<%= filtros.cliente || '' %>" placeholder="Buscar cliente..." />
+  </div>
+  <div class="field" style="margin:0;">
+    <label>CNPJ</label>
+    <input type="text" name="cnpj" value="<%= filtros.cnpj || '' %>" placeholder="Buscar por CNPJ..." />
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Cidade</label>
+    <input type="text" name="cidade" value="<%= filtros.cidade || '' %>" placeholder="Buscar cidade..." />
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Simples Nacional</label>
+    <select name="simples">
+      <option value="">Todos</option>
+      <option value="sim" <%= filtros.simples === 'sim' ? 'selected' : '' %>>Simples Nacional</option>
+      <option value="nao" <%= filtros.simples === 'nao' ? 'selected' : '' %>>Não / Pessoa Física</option>
+    </select>
+  </div>
+  <div class="field" style="margin:0;">
+    <label>De</label>
+    <input type="date" name="dataDe" value="<%= filtros.dataDe || '' %>" />
+  </div>
+  <div class="field" style="margin:0;">
+    <label>Até</label>
+    <input type="date" name="dataAte" value="<%= filtros.dataAte || '' %>" />
+  </div>
+  <div class="actions" style="grid-column: 1 / -1;">
+    <button class="btn btn-primary" type="submit">Filtrar</button>
+    <a class="btn btn-ghost" href="/lista">Limpar filtros</a>
+  </div>
+</form>
+
+<div class="card" style="padding: 0; overflow-x: auto;">
+  <% if (!notas.length) { %>
+    <div class="empty-state">
+      <div class="icon">🗂️</div>
+      <div>Nenhuma nota encontrada para os filtros aplicados.</div>
+    </div>
+  <% } else { %>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:32px;"><input type="checkbox" id="select-all" /></th>
+        <th><%- sortLink('data_emissao', 'Emissão') %></th>
+        <th><%- sortLink('vencimento', 'Venc.') %></th>
+        <th><%- sortLink('cliente', 'Cliente') %></th>
+        <th><%- sortLink('cidade', 'Cidade') %></th>
+        <th>Regime</th>
+        <th><%- sortLink('valor', 'Valor') %></th>
+        <th class="num">PIS</th>
+        <th class="num">COFINS</th>
+        <th class="num">CSLL</th>
+        <th class="num">IRPJ</th>
+        <th><%- sortLink('iss', 'ISS') %></th>
+        <th><%- sortLink('valor_liquido', 'Líquido') %></th>
+        <th title="Proporção líquido x impostos">Proporção</th>
+        <th style="width:70px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% notas.forEach(function(n){
+        const impostos = Number(n.pis) + Number(n.cofins) + Number(n.csll) + Number(n.irpj) + Number(n.iss);
+        const pctLiquido = n.valor > 0 ? Math.max(0, Math.min(100, (n.valor_liquido / n.valor) * 100)) : 100;
+        const simplesNorm = (n.simples_nacional || '').trim().toLowerCase();
+        const marcadoresSim = ['sim', 's', 'x', '1', 'true', 'verdadeiro'];
+        const ehEngenharia = (n.empresa_nome || '').toLowerCase().includes('engenharia');
+        let badgeClass = 'badge-nao', badgeLabel = 'Não';
+        if (simplesNorm.includes('fisica') || simplesNorm.includes('física') || simplesNorm === 'pf') { badgeClass = 'badge-pf'; badgeLabel = 'P. Física'; }
+        else if (simplesNorm.includes('simples') || marcadoresSim.includes(simplesNorm)) { badgeClass = 'badge-simples'; badgeLabel = 'Simples'; }
+        else if (!simplesNorm && !ehEngenharia) { badgeClass = ''; badgeLabel = 'A confirmar'; }
+        else if (!simplesNorm && ehEngenharia) { badgeClass = ''; badgeLabel = '-'; }
+      %>
+      <tr data-nf-id="<%= n.id %>">
+        <td><input type="checkbox" class="row-check" value="<%= n.id %>" /></td>
+        <td class="text-col"><%= n.data_emissao ? new Date(n.data_emissao).toLocaleDateString('pt-BR', {timeZone:'UTC'}) : '-' %></td>
+        <td class="text-col"><%= n.vencimento ? new Date(n.vencimento).toLocaleDateString('pt-BR', {timeZone:'UTC'}) : '-' %></td>
+        <td class="text-col"><%= n.cliente %><br/><span style="color:var(--text-muted); font-size:11px; font-family:var(--font-mono);"><%= n.empresa_nome %></span></td>
+        <td class="text-col"><%= n.cidade %></td>
+        <td class="text-col"><span class="badge <%= badgeClass %>"><%= badgeLabel %></span></td>
+        <td class="num"><%= fmt(n.valor) %></td>
+        <td class="num <%= n.pis > 0 ? 'tax-num' : '' %>"><%= fmt(n.pis) %></td>
+        <td class="num <%= n.cofins > 0 ? 'tax-num' : '' %>"><%= fmt(n.cofins) %></td>
+        <td class="num <%= n.csll > 0 ? 'tax-num' : '' %>"><%= fmt(n.csll) %></td>
+        <td class="num <%= n.irpj > 0 ? 'tax-num' : '' %>"><%= fmt(n.irpj) %></td>
+        <td class="num <%= n.iss > 0 ? 'tax-num' : '' %>"><%= fmt(n.iss) %></td>
+        <td class="num liquido-num"><%= fmt(n.valor_liquido) %></td>
+        <td>
+          <div class="ratio-bar" title="<%= pctLiquido.toFixed(0) %>% líquido">
+            <div class="seg-liquido" style="width: <%= pctLiquido %>%;"></div>
+            <div class="seg-imposto" style="width: <%= 100 - pctLiquido %>%;"></div>
+          </div>
+        </td>
+        <td style="white-space:nowrap;">
+          <button type="button" class="row-edit-btn" data-id="<%= n.id %>" title="Editar esta NF"
+            style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:14px;">✎</button>
+          <button type="button" class="row-delete-btn" data-id="<%= n.id %>" title="Excluir esta NF"
+            style="background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:15px;">🗑</button>
+        </td>
+      </tr>
+      <% }) %>
+    </tbody>
+    <tfoot>
+      <tr class="totals-row">
+        <td></td>
+        <td colspan="5" class="text-col">Totais da página filtrada</td>
+        <td class="num"><%= fmt(totals.valor) %></td>
+        <td class="num"><%= fmt(totals.pis) %></td>
+        <td class="num"><%= fmt(totals.cofins) %></td>
+        <td class="num"><%= fmt(totals.csll) %></td>
+        <td class="num"><%= fmt(totals.irpj) %></td>
+        <td class="num"><%= fmt(totals.iss) %></td>
+        <td class="num"><%= fmt(totals.valor_liquido) %></td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tfoot>
+  </table>
+  <% } %>
+</div>
+
+<% if (totalPages > 1) { %>
+<div class="pagination">
+  <span>Página <%= page %> de <%= totalPages %></span>
+  <div class="pages">
+    <% if (page > 1) { %><a href="<%= qs({ page: page - 1 }) %>">← Anterior</a><% } %>
+    <% for (let p = Math.max(1, page - 2); p <= Math.min(totalPages, page + 2); p++) { %>
+      <% if (p === page) { %><span class="current"><%= p %></span><% } else { %><a href="<%= qs({ page: p }) %>"><%= p %></a><% } %>
+    <% } %>
+    <% if (page < totalPages) { %><a href="<%= qs({ page: page + 1 }) %>">Próxima →</a><% } %>
+  </div>
+</div>
+<% } %>
+
+<!-- Modal de edição de NF -->
+<div class="modal-overlay" id="modal-nf">
+  <div class="modal-box" style="max-width:640px;">
+    <div class="modal-header">
+      <h3>Editar NF</h3>
+      <button type="button" class="modal-close" onclick="fecharModal('modal-nf')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="e-cliente">Cliente</label>
+          <input type="text" id="e-cliente" required />
+        </div>
+        <div class="field">
+          <label for="e-cnpj">CNPJ/CPF</label>
+          <input type="text" id="e-cnpj" />
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="e-cidade">Cidade</label>
+          <input type="text" id="e-cidade" />
+        </div>
+        <div class="field">
+          <label for="e-simplesNacional">Regime tributário</label>
+          <select id="e-simplesNacional">
+            <option value="">Não (regime normal)</option>
+            <option value="Simples Nacional">Simples Nacional</option>
+            <option value="Pessoa Física">Pessoa Física</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="e-descricao">Descrição</label>
+        <input type="text" id="e-descricao" />
+      </div>
+      <div class="grid cols-3">
+        <div class="field">
+          <label for="e-valor">Valor (R$)</label>
+          <input type="text" id="e-valor" required />
+        </div>
+        <div class="field">
+          <label for="e-vencimento">Vencimento</label>
+          <input type="date" id="e-vencimento" />
+        </div>
+        <div class="field">
+          <label for="e-dataEmissao">Data de emissão</label>
+          <input type="date" id="e-dataEmissao" required />
+        </div>
+      </div>
+      <div class="field">
+        <label for="e-issAliquota">Alíquota de ISS vigente (%) <span style="font-weight:400; color:var(--text-muted);">— usada para recalcular o ISS desta NF</span></label>
+        <input type="text" id="e-issAliquota" required style="max-width:160px;" />
+      </div>
+
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="e-codigoServico">Código de serviço</label>
+          <select id="e-codigoServico"><option value="">Nenhum</option></select>
+        </div>
+        <div class="field">
+          <label for="e-nbs">NBS</label>
+          <select id="e-nbs" disabled><option value="">-</option></select>
+        </div>
+      </div>
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="e-indicadorOperacao">Indicador de operação</label>
+          <select id="e-indicadorOperacao" disabled><option value="">-</option></select>
+        </div>
+        <div class="field">
+          <label for="e-classificacaoTributaria">Classificação tributária</label>
+          <select id="e-classificacaoTributaria" disabled><option value="">-</option></select>
+        </div>
+      </div>
+
+      <div id="modal-nf-status" class="modal-status" style="color:var(--tax);"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-ghost" onclick="fecharModal('modal-nf')">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="btn-salvar-nf">Salvar alterações</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const TOTAL_FILTRADO = <%= total %>;
+  const QUERY_FILTROS = <%- JSON.stringify((function(){
+    const base = Object.assign({}, filtros, { sort, dir });
+    const parts = [];
+    for (const k in base) { if (base[k] !== undefined && base[k] !== null && base[k] !== '') parts.push(k + '=' + encodeURIComponent(base[k])); }
+    return parts.join("&");
+  })()) %>;
+
+  const selectAll = document.getElementById('select-all');
+  const rowChecks = () => Array.from(document.querySelectorAll('.row-check'));
+  const bulkBar = document.getElementById('bulk-bar');
+  const bulkCount = document.getElementById('bulk-count');
+  const bulkSelectAllWrap = document.getElementById('bulk-select-all-wrap');
+  const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+
+  // Quando true, a seleção vale para TODAS as notas do filtro atual (todas as
+  // páginas), não só as marcadas na tela. idsModoTotal guarda esses ids.
+  let modoTodasFiltradas = false;
+  let idsModoTotal = [];
+
+  function idsSelecionados() {
+    return modoTodasFiltradas ? idsModoTotal.map(String) : rowChecks().filter(c => c.checked).map(c => c.value);
+  }
+
+  function sairDoModoTotal() {
+    modoTodasFiltradas = false;
+    idsModoTotal = [];
+    syncBulkBar();
+  }
+
+  function syncBulkBar() {
+    const qtd = idsSelecionados().length;
+    if (qtd > 0) {
+      bulkBar.style.display = 'flex';
+      if (modoTodasFiltradas) {
+        bulkCount.textContent = qtd === 1 ? '1 nota selecionada (todos os filtros)' : qtd + ' notas selecionadas (todos os filtros)';
+        bulkSelectAllWrap.innerHTML = '<a href="#" id="cancelar-modo-total" style="color:var(--text-muted); text-decoration:underline;">cancelar</a>';
+        document.getElementById('cancelar-modo-total').addEventListener('click', (e) => {
+          e.preventDefault();
+          rowChecks().forEach(cb => { cb.checked = false; });
+          sairDoModoTotal();
+        });
+      } else {
+        bulkCount.textContent = qtd === 1 ? '1 nota selecionada' : qtd + ' notas selecionadas';
+        if (TOTAL_FILTRADO > rowChecks().length) {
+          bulkSelectAllWrap.innerHTML = '<a href="#" id="selecionar-tudo-filtrado" style="color:var(--primary); text-decoration:underline;">selecionar todas as ' + TOTAL_FILTRADO + ' notas filtradas</a>';
+          document.getElementById('selecionar-tudo-filtrado').addEventListener('click', async (e) => {
+            e.preventDefault();
+            bulkSelectAllWrap.textContent = 'Carregando...';
+            try {
+              const resp = await fetch('/lista/ids?' + QUERY_FILTROS);
+              const data = await resp.json();
+              if (resp.ok && data.ok) {
+                modoTodasFiltradas = true;
+                idsModoTotal = data.ids;
+                syncBulkBar();
+              } else {
+                bulkSelectAllWrap.textContent = '';
+                alert(data.erro || 'Erro ao buscar todas as notas filtradas.');
+              }
+            } catch (err) {
+              bulkSelectAllWrap.textContent = '';
+              alert('Erro de conexão ao buscar todas as notas filtradas.');
+            }
+          });
+        } else {
+          bulkSelectAllWrap.innerHTML = '';
+        }
+      }
+    } else {
+      bulkBar.style.display = 'none';
+      if (modoTodasFiltradas) sairDoModoTotal();
+    }
+    if (selectAll && !modoTodasFiltradas) {
+      const checked = rowChecks().filter(c => c.checked);
+      selectAll.checked = checked.length > 0 && checked.length === rowChecks().length;
+    }
+  }
+
+  rowChecks().forEach(cb => cb.addEventListener('change', () => {
+    if (modoTodasFiltradas) sairDoModoTotal();
+    syncBulkBar();
+  }));
+
+  if (selectAll) {
+    selectAll.addEventListener('change', () => {
+      if (modoTodasFiltradas) sairDoModoTotal();
+      rowChecks().forEach(cb => { cb.checked = selectAll.checked; });
+      syncBulkBar();
+    });
+  }
+
+  async function excluirNotas(ids) {
+    const resp = await fetch('/lista/excluir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) {
+      alert(data.erro || 'Erro ao excluir. Tente novamente.');
+      return;
+    }
+    window.location.reload();
+  }
+
+  document.querySelectorAll('.row-delete-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      if (confirm('Excluir esta nota fiscal? Essa ação não pode ser desfeita.')) {
+        excluirNotas([id]);
+      }
+    });
+  });
+
+  if (bulkDeleteBtn) {
+    bulkDeleteBtn.addEventListener('click', () => {
+      const ids = idsSelecionados();
+      if (!ids.length) return;
+      const msg = ids.length === 1
+        ? 'Excluir a nota fiscal selecionada? Essa ação não pode ser desfeita.'
+        : `Excluir as ${ids.length} notas fiscais selecionadas? Essa ação não pode ser desfeita.`;
+      if (confirm(msg)) {
+        excluirNotas(ids);
+      }
+    });
+  }
+
+  const bulkExportBtn = document.getElementById('bulk-export-btn');
+  const exportForm = document.getElementById('export-form');
+  const exportIdsInput = document.getElementById('export-ids');
+
+  if (bulkExportBtn) {
+    bulkExportBtn.addEventListener('click', () => {
+      const ids = idsSelecionados();
+      if (!ids.length) return;
+      exportIdsInput.value = ids.join(',');
+      exportForm.submit();
+    });
+  }
+
+  // ---------- Edição de NF via popup ----------
+  const NOTAS = <%- JSON.stringify(notas) %>;
+  const EMPRESAS_ISS = <%- JSON.stringify(configMap) %>;
+  const CODIGOS_SERVICO_NF = <%- JSON.stringify(codigos) %>;
+  const NBS_LIST_NF = <%- JSON.stringify(nbsList) %>;
+  const INDICADORES_NF = <%- JSON.stringify(indicadores) %>;
+  const CLASSIFICACOES_NF = <%- JSON.stringify(classificacoes) %>;
+
+  let nfEmEdicaoId = null;
+  let nfEmEdicaoEmpresaId = null;
+
+  function popularSelectNf(select, opcoes, placeholderVazio, placeholderPreenchido, valorSelecionado) {
+    if (!opcoes) {
+      select.innerHTML = `<option value="">${placeholderVazio}</option>`;
+      select.disabled = true;
+      return;
+    }
+    const options = ['<option value="">' + placeholderPreenchido + '</option>']
+      .concat(opcoes.map(o => `<option value="${o.codigo}" data-id="${o.id}">${o.codigo}${o.descricao ? ' — ' + o.descricao : ''}</option>`));
+    select.innerHTML = options.join('');
+    select.disabled = false;
+    if (valorSelecionado) select.value = valorSelecionado;
+  }
+
+  function popularCascataNf(empresaId, valores) {
+    valores = valores || {};
+    const codigoSelect = document.getElementById('e-codigoServico');
+    const nbsSelect = document.getElementById('e-nbs');
+    const indSelect = document.getElementById('e-indicadorOperacao');
+    const classSelect = document.getElementById('e-classificacaoTributaria');
+
+    const codigosDaEmpresa = CODIGOS_SERVICO_NF.filter(c => String(c.empresa_id) === String(empresaId));
+    popularSelectNf(codigoSelect, codigosDaEmpresa, '', 'Nenhum', valores.codigoServico);
+
+    const codigoOpt = codigoSelect.selectedOptions[0];
+    const codigoServicoId = codigoOpt ? codigoOpt.dataset.id : null;
+    if (codigoServicoId) {
+      const nbsDoCodigo = NBS_LIST_NF.filter(n => String(n.codigo_servico_id) === String(codigoServicoId));
+      popularSelectNf(nbsSelect, nbsDoCodigo, 'Selecione o código primeiro', 'Nenhum', valores.nbs);
+    } else {
+      popularSelectNf(nbsSelect, null, 'Selecione o código primeiro', 'Nenhum');
+    }
+
+    const nbsOpt = nbsSelect.selectedOptions[0];
+    const nbsId = nbsOpt ? nbsOpt.dataset.id : null;
+    if (nbsId) {
+      const indDoNbs = INDICADORES_NF.filter(i => String(i.nbs_id) === String(nbsId));
+      popularSelectNf(indSelect, indDoNbs, 'Selecione o NBS primeiro', 'Nenhum', valores.indicadorOperacao);
+    } else {
+      popularSelectNf(indSelect, null, 'Selecione o NBS primeiro', 'Nenhum');
+    }
+
+    const indOpt = indSelect.selectedOptions[0];
+    const indId = indOpt ? indOpt.dataset.id : null;
+    if (indId) {
+      const classDoInd = CLASSIFICACOES_NF.filter(c => String(c.indicador_operacao_id) === String(indId));
+      popularSelectNf(classSelect, classDoInd, 'Selecione o indicador primeiro', 'Nenhum', valores.classificacaoTributaria);
+    } else {
+      popularSelectNf(classSelect, null, 'Selecione o indicador primeiro', 'Nenhum');
+    }
+  }
+
+  document.getElementById('e-codigoServico').addEventListener('change', () => popularCascataNf(nfEmEdicaoEmpresaId, { codigoServico: document.getElementById('e-codigoServico').value }));
+  document.getElementById('e-nbs').addEventListener('change', () => {
+    const codigoAtual = document.getElementById('e-codigoServico').value;
+    popularCascataNf(nfEmEdicaoEmpresaId, { codigoServico: codigoAtual, nbs: document.getElementById('e-nbs').value });
+  });
+  document.getElementById('e-indicadorOperacao').addEventListener('change', () => {
+    const codigoAtual = document.getElementById('e-codigoServico').value;
+    const nbsAtual = document.getElementById('e-nbs').value;
+    popularCascataNf(nfEmEdicaoEmpresaId, { codigoServico: codigoAtual, nbs: nbsAtual, indicadorOperacao: document.getElementById('e-indicadorOperacao').value });
+  });
+
+  function abrirEdicaoNf(nf) {
+    nfEmEdicaoId = nf.id;
+    document.getElementById('e-cliente').value = nf.cliente || '';
+    document.getElementById('e-cnpj').value = nf.cnpj || '';
+    document.getElementById('e-cidade').value = nf.cidade || '';
+    document.getElementById('e-simplesNacional').value = nf.simples_nacional || '';
+    document.getElementById('e-descricao').value = nf.descricao || '';
+    document.getElementById('e-valor').value = Number(nf.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+    document.getElementById('e-vencimento').value = nf.vencimento ? nf.vencimento.slice(0, 10) : '';
+    document.getElementById('e-dataEmissao').value = nf.data_emissao ? nf.data_emissao.slice(0, 10) : '';
+
+    const empresaObj = <%- JSON.stringify(empresas) %>.find(e => e.nome === nf.empresa_nome);
+    nfEmEdicaoEmpresaId = empresaObj ? empresaObj.id : null;
+
+    let aliquotaAtual = EMPRESAS_ISS[nfEmEdicaoEmpresaId] || 2;
+    if (Number(nf.valor) > 0 && Number(nf.iss) > 0) {
+      aliquotaAtual = Math.round((Number(nf.iss) / Number(nf.valor)) * 10000) / 100;
+    }
+    document.getElementById('e-issAliquota').value = aliquotaAtual.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+
+    popularCascataNf(nfEmEdicaoEmpresaId, {
+      codigoServico: nf.codigo_servico, nbs: nf.nbs,
+      indicadorOperacao: nf.indicador_operacao, classificacaoTributaria: nf.classificacao_tributaria
+    });
+
+    document.getElementById('modal-nf-status').textContent = '';
+    abrirModal('modal-nf');
+  }
+
+  document.querySelectorAll('.row-edit-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = parseInt(btn.dataset.id, 10);
+      const nf = NOTAS.find((n) => n.id === id);
+      if (nf) abrirEdicaoNf(nf);
+    });
+  });
+
+  document.getElementById('btn-salvar-nf').addEventListener('click', async () => {
+    const statusEl = document.getElementById('modal-nf-status');
+    const btn = document.getElementById('btn-salvar-nf');
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+    try {
+      const resp = await fetch(`/lista/${nfEmEdicaoId}/editar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cliente: document.getElementById('e-cliente').value,
+          cnpj: document.getElementById('e-cnpj').value,
+          cidade: document.getElementById('e-cidade').value,
+          simplesNacional: document.getElementById('e-simplesNacional').value,
+          descricao: document.getElementById('e-descricao').value,
+          valor: document.getElementById('e-valor').value,
+          vencimento: document.getElementById('e-vencimento').value,
+          dataEmissao: document.getElementById('e-dataEmissao').value,
+          issAliquota: document.getElementById('e-issAliquota').value,
+          codigoServico: document.getElementById('e-codigoServico').value,
+          nbs: document.getElementById('e-nbs').value,
+          indicadorOperacao: document.getElementById('e-indicadorOperacao').value,
+          classificacaoTributaria: document.getElementById('e-classificacaoTributaria').value
+        })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        window.location.reload();
+      } else {
+        statusEl.textContent = data.erro || 'Erro ao salvar.';
+      }
+    } catch (e) {
+      statusEl.textContent = 'Erro de conexão.';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Salvar alterações';
+    }
+  });
+</script>
+
+<%- include('partials/foot') %>

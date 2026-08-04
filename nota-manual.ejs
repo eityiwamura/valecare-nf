@@ -1,0 +1,414 @@
+<%- include('partials/head', { title: 'Nova NF manual' }) %>
+
+<div class="page-header">
+  <div>
+    <h1>Lançar NF manual</h1>
+    <p>Digite o CNPJ ou CPF do cliente — o sistema busca no cadastro (CNPJ também consulta a Receita Federal na primeira vez) e calcula os impostos.</p>
+  </div>
+</div>
+
+<% if (erro) { %>
+  <div class="alert alert-error"><%= erro %></div>
+<% } %>
+<% if (sucesso) { %>
+  <div class="alert alert-success">
+    NF lançada com sucesso! <a href="/lista" style="text-decoration: underline; font-weight: 700;">Ver no histórico →</a>
+  </div>
+<% } %>
+
+<div class="grid cols-2" style="align-items:start;">
+  <div class="card">
+    <form method="POST" action="/notas/nova" id="manual-form">
+      <div class="field">
+        <label for="empresaId">Empresa emissora</label>
+        <select name="empresaId" id="empresaId" required>
+          <option value="">Selecione...</option>
+          <% empresas.forEach(function(e){ %>
+            <option value="<%= e.id %>" data-iss="<%= configMap[e.id] %>"><%= e.nome %></option>
+          <% }) %>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Tipo de cliente</label>
+        <div style="display:flex; gap:16px; padding-top:4px;">
+          <label style="display:flex; align-items:center; gap:6px; font-weight:500; color:var(--text);">
+            <input type="radio" name="tipoPessoa" value="cnpj" checked style="width:auto;" /> CNPJ (pessoa jurídica)
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; font-weight:500; color:var(--text);">
+            <input type="radio" name="tipoPessoa" value="cpf" style="width:auto;" /> CPF (pessoa física)
+          </label>
+        </div>
+      </div>
+
+      <div class="field" id="campo-cnpj">
+        <label for="cnpj" id="label-documento">CNPJ</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" name="cnpj" id="cnpj" placeholder="00.000.000/0000-00" required />
+          <button type="button" class="btn btn-ghost" id="btn-buscar-cnpj" style="white-space:nowrap;">🔍 Buscar</button>
+        </div>
+        <div id="cnpj-status" style="font-size:12px; margin-top:6px; color:var(--text-muted);"></div>
+      </div>
+
+      <div class="field">
+        <label for="cliente">Cliente (razão social)</label>
+        <input type="text" name="cliente" id="cliente" required />
+      </div>
+
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="cidade">Cidade</label>
+          <input type="text" name="cidade" id="cidade" required />
+        </div>
+        <div class="field" id="campo-simples">
+          <label for="simplesNacional">Regime tributário</label>
+          <select name="simplesNacional" id="simplesNacional">
+            <option value="Não">Não (regime normal)</option>
+            <option value="Simples Nacional">Simples Nacional</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field" id="campo-endereco">
+        <label>Endereço completo <span style="font-weight:400; color:var(--text-muted);">(útil pra emissão de NF futuramente)</span></label>
+        <input type="hidden" name="codigoIbge" id="codigoIbge" />
+        <div class="grid cols-4" style="gap:8px;">
+          <div class="field" style="grid-column: span 2; margin-bottom:0;">
+            <input type="text" name="logradouro" id="logradouro" placeholder="Logradouro" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="numero" id="numero" placeholder="Número" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <div style="display:flex; gap:6px;">
+              <input type="text" name="cep" id="cep" placeholder="CEP" />
+              <button type="button" class="btn btn-ghost" id="btn-buscar-cep" title="Buscar endereço pelo CEP" style="padding:0 12px;">🔍</button>
+            </div>
+          </div>
+        </div>
+        <div class="grid cols-3" style="gap:8px; margin-top:8px;">
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="bairro" id="bairro" placeholder="Bairro" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="complemento" id="complemento" placeholder="Complemento" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <input type="text" name="uf" id="uf" placeholder="UF" maxlength="2" style="text-transform:uppercase;" />
+          </div>
+        </div>
+        <div id="cep-status" style="font-size:12px; margin-top:6px; color:var(--text-muted);"></div>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="codigoServico">Código de serviço</label>
+          <select name="codigoServico" id="codigoServico">
+            <option value="">Selecione a empresa primeiro...</option>
+          </select>
+          <div style="font-size:12px; margin-top:6px;">
+            <a href="/codigos-servico" style="color:var(--primary); text-decoration:underline;">+ Cadastrar novo código</a>
+          </div>
+        </div>
+        <div class="field">
+          <label for="valor">Valor da NF (R$)</label>
+          <input type="text" name="valor" id="valor" placeholder="Ex: 1.250,00" required />
+        </div>
+      </div>
+
+      <div class="grid cols-3">
+        <div class="field">
+          <label for="nbs">NBS</label>
+          <select name="nbs" id="nbs" disabled>
+            <option value="">Selecione o código de serviço primeiro...</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="indicadorOperacao">Indicador de operação</label>
+          <select name="indicadorOperacao" id="indicadorOperacao" disabled>
+            <option value="">Selecione o NBS primeiro...</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="classificacaoTributaria">Classificação tributária</label>
+          <select name="classificacaoTributaria" id="classificacaoTributaria" disabled>
+            <option value="">Selecione o indicador primeiro...</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="descricao">Descrição</label>
+        <input type="text" name="descricao" id="descricao" placeholder="Ex: Mensalidade, Ex. Clínico, etc." />
+      </div>
+
+      <div class="grid cols-3">
+        <div class="field">
+          <label for="vencimento">Vencimento</label>
+          <input type="date" name="vencimento" id="vencimento" />
+        </div>
+        <div class="field">
+          <label for="dataEmissao">Data de emissão</label>
+          <input type="date" name="dataEmissao" id="dataEmissao" value="<%= hoje %>" required />
+        </div>
+        <div class="field">
+          <label for="issAliquota">Alíquota de ISS (%)</label>
+          <input type="text" name="issAliquota" id="issAliquota" placeholder="Ex: 2,00" required />
+        </div>
+      </div>
+
+      <button class="btn btn-primary" type="submit" style="width:100%; margin-top:8px;">Salvar NF</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Como funciona</h3>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      1. Escolha CNPJ ou CPF. Pra CNPJ, digite o número e clique em <strong>Buscar</strong>:
+      o sistema procura primeiro no seu cadastro local; se não achar, consulta a Receita
+      Federal (BrasilAPI) e já salva o cliente pra próxima vez ser instantâneo. Pra CPF,
+      não existe consulta pública — a busca só encontra CPFs que você já cadastrou antes
+      numa NF manual anterior; se for a primeira vez, é só preencher os dados manualmente
+      que eles ficam salvos automaticamente ao gravar a NF.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      2. Cliente, cidade e regime tributário vêm preenchidos automaticamente, mas você
+      pode corrigir antes de salvar.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      3. O limite de R$10 (PIS+COFINS+CSLL e IRPJ) considera <strong>todas</strong> as NFs
+      do mesmo cliente na mesma data de emissão — inclusive as que vieram de upload de
+      planilha. Lançar uma NF manual pode alterar o valor de impostos de NFs já
+      existentes desse mesmo cliente/dia (pra cima ou pra baixo).
+    </p>
+  </div>
+</div>
+
+<script>
+  const CODIGOS_SERVICO = <%- JSON.stringify(codigos) %>;
+  const NBS_LIST = <%- JSON.stringify(nbsList) %>;
+  const INDICADORES = <%- JSON.stringify(indicadores) %>;
+  const CLASSIFICACOES = <%- JSON.stringify(classificacoes) %>;
+
+  const empresaSelect = document.getElementById('empresaId');
+  const issInput = document.getElementById('issAliquota');
+  const codigoSelect = document.getElementById('codigoServico');
+  const nbsSelect = document.getElementById('nbs');
+  const indicadorSelect = document.getElementById('indicadorOperacao');
+  const classificacaoSelect = document.getElementById('classificacaoTributaria');
+
+  function popularSelect(select, opcoes, placeholderVazio, placeholderPreenchido) {
+    if (!opcoes) {
+      select.innerHTML = `<option value="">${placeholderVazio}</option>`;
+      select.disabled = true;
+      return;
+    }
+    if (!opcoes.length) {
+      select.innerHTML = '<option value="">Nenhum cadastrado — cadastre em Códigos de Serviço</option>';
+      select.disabled = true;
+      return;
+    }
+    select.innerHTML = `<option value="">${placeholderPreenchido}</option>` +
+      opcoes.map(o => `<option value="${o.codigo}" data-id="${o.id}">${o.codigo}${o.descricao ? ' — ' + o.descricao : ''}</option>`).join('');
+    select.disabled = false;
+  }
+
+  function popularCodigos(empresaId) {
+    if (!empresaId) {
+      codigoSelect.innerHTML = '<option value="">Selecione a empresa primeiro...</option>';
+      codigoSelect.disabled = true;
+    } else {
+      const opcoes = CODIGOS_SERVICO.filter(c => String(c.empresa_id) === String(empresaId));
+      popularSelect(codigoSelect, opcoes, 'Selecione a empresa primeiro...', 'Selecione...');
+    }
+    // empresa mudou -> zera toda a cascata abaixo
+    popularSelect(nbsSelect, null, 'Selecione o código de serviço primeiro...');
+    popularSelect(indicadorSelect, null, 'Selecione o NBS primeiro...');
+    popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+  }
+
+  function popularNbs(codigoServicoId) {
+    if (!codigoServicoId) {
+      popularSelect(nbsSelect, null, 'Selecione o código de serviço primeiro...');
+    } else {
+      const opcoes = NBS_LIST.filter(n => String(n.codigo_servico_id) === String(codigoServicoId));
+      popularSelect(nbsSelect, opcoes, '', 'Selecione o NBS...');
+    }
+    popularSelect(indicadorSelect, null, 'Selecione o NBS primeiro...');
+    popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+  }
+
+  function popularIndicadores(nbsId) {
+    if (!nbsId) {
+      popularSelect(indicadorSelect, null, 'Selecione o NBS primeiro...');
+    } else {
+      const opcoes = INDICADORES.filter(i => String(i.nbs_id) === String(nbsId));
+      popularSelect(indicadorSelect, opcoes, '', 'Selecione o indicador...');
+    }
+    popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+  }
+
+  function popularClassificacoes(indicadorId) {
+    if (!indicadorId) {
+      popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+    } else {
+      const opcoes = CLASSIFICACOES.filter(c => String(c.indicador_operacao_id) === String(indicadorId));
+      popularSelect(classificacaoSelect, opcoes, '', 'Selecione a classificação...');
+    }
+  }
+
+  empresaSelect.addEventListener('change', () => {
+    const opt = empresaSelect.selectedOptions[0];
+    if (opt && opt.dataset.iss) issInput.value = Number(opt.dataset.iss).toLocaleString('pt-BR', {minimumFractionDigits:2});
+    popularCodigos(empresaSelect.value);
+  });
+  codigoSelect.addEventListener('change', () => {
+    const opt = codigoSelect.selectedOptions[0];
+    popularNbs(opt ? opt.dataset.id : null);
+  });
+  nbsSelect.addEventListener('change', () => {
+    const opt = nbsSelect.selectedOptions[0];
+    popularIndicadores(opt ? opt.dataset.id : null);
+  });
+  indicadorSelect.addEventListener('change', () => {
+    const opt = indicadorSelect.selectedOptions[0];
+    popularClassificacoes(opt ? opt.dataset.id : null);
+  });
+
+  popularCodigos(empresaSelect.value);
+
+  const radios = document.querySelectorAll('input[name="tipoPessoa"]');
+  const campoSimples = document.getElementById('campo-simples');
+  const cnpjInput = document.getElementById('cnpj');
+  const labelDocumento = document.getElementById('label-documento');
+  const simplesSelect = document.getElementById('simplesNacional');
+
+  function syncTipoPessoa() {
+    const tipo = document.querySelector('input[name="tipoPessoa"]:checked').value;
+    cnpjInput.value = '';
+    document.getElementById('cnpj-status').textContent = '';
+    if (tipo === 'cpf') {
+      campoSimples.style.display = 'none';
+      labelDocumento.textContent = 'CPF';
+      cnpjInput.placeholder = '000.000.000-00';
+    } else {
+      campoSimples.style.display = '';
+      labelDocumento.textContent = 'CNPJ';
+      cnpjInput.placeholder = '00.000.000/0000-00';
+    }
+  }
+  radios.forEach(r => r.addEventListener('change', syncTipoPessoa));
+  syncTipoPessoa();
+
+  const btnBuscar = document.getElementById('btn-buscar-cnpj');
+  const cnpjStatus = document.getElementById('cnpj-status');
+  const clienteInput = document.getElementById('cliente');
+  const cidadeInput = document.getElementById('cidade');
+
+  btnBuscar.addEventListener('click', async () => {
+    const tipo = document.querySelector('input[name="tipoPessoa"]:checked').value;
+    const documento = cnpjInput.value.replace(/\D/g, '');
+    const tamanhoEsperado = tipo === 'cpf' ? 11 : 14;
+    if (documento.length !== tamanhoEsperado) {
+      cnpjStatus.textContent = tipo === 'cpf' ? 'CPF precisa ter 11 dígitos.' : 'CNPJ precisa ter 14 dígitos.';
+      cnpjStatus.style.color = 'var(--tax)';
+      return;
+    }
+    btnBuscar.disabled = true;
+    btnBuscar.textContent = 'Buscando...';
+    cnpjStatus.textContent = '';
+    try {
+      const resp = await fetch('/api/clientes/buscar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cnpj: documento })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        if (data.cpfNaoEncontrado) {
+          cnpjStatus.textContent = 'CPF ainda não cadastrado — preencha os dados abaixo, eles serão salvos ao gravar a NF.';
+          cnpjStatus.style.color = 'var(--text-muted)';
+        } else {
+          cnpjStatus.textContent = data.erro || 'Erro ao buscar.';
+          cnpjStatus.style.color = 'var(--tax)';
+        }
+        return;
+      }
+      const c = data.cliente;
+      clienteInput.value = c.razao_social || '';
+      cidadeInput.value = c.cidade || '';
+      document.getElementById('logradouro').value = c.logradouro || '';
+      document.getElementById('numero').value = c.numero || '';
+      document.getElementById('bairro').value = c.bairro || '';
+      document.getElementById('complemento').value = c.complemento || '';
+      document.getElementById('cep').value = c.cep || '';
+      document.getElementById('uf').value = c.uf || '';
+      document.getElementById('codigoIbge').value = c.codigo_ibge || '';
+      if (tipo !== 'cpf') {
+        simplesSelect.value = c.simples_nacional === 'Simples Nacional' ? 'Simples Nacional' : 'Não';
+      }
+      if (c.fonte === 'cadastro') {
+        cnpjStatus.textContent = '✓ Encontrado no cadastro local.';
+        cnpjStatus.style.color = 'var(--primary)';
+      } else if (c.regimeConhecido === false) {
+        cnpjStatus.textContent = '✓ Cliente e cidade consultados, mas confirme o regime tributário (Simples Nacional) manualmente — fonte alternativa não confirma isso.';
+        cnpjStatus.style.color = 'var(--tax)';
+      } else {
+        cnpjStatus.textContent = '✓ Consultado na Receita Federal e salvo no cadastro.';
+        cnpjStatus.style.color = 'var(--primary)';
+      }
+    } catch (e) {
+      cnpjStatus.textContent = 'Erro de conexão ao buscar.';
+      cnpjStatus.style.color = 'var(--tax)';
+    } finally {
+      btnBuscar.disabled = false;
+      btnBuscar.textContent = '🔍 Buscar';
+    }
+  });
+
+  const btnBuscarCep = document.getElementById('btn-buscar-cep');
+  const cepStatus = document.getElementById('cep-status');
+  const cepInput = document.getElementById('cep');
+
+  btnBuscarCep.addEventListener('click', async () => {
+    const cepDigits = cepInput.value.replace(/\D/g, '');
+    if (cepDigits.length !== 8) {
+      cepStatus.textContent = 'CEP precisa ter 8 dígitos.';
+      cepStatus.style.color = 'var(--tax)';
+      return;
+    }
+    btnBuscarCep.disabled = true;
+    cepStatus.textContent = 'Buscando...';
+    cepStatus.style.color = 'var(--text-muted)';
+    try {
+      const resp = await fetch('/api/cep/buscar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cep: cepDigits })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) {
+        cepStatus.textContent = data.erro || 'CEP não encontrado.';
+        cepStatus.style.color = 'var(--tax)';
+        return;
+      }
+      const e = data.endereco;
+      document.getElementById('logradouro').value = e.logradouro || '';
+      document.getElementById('bairro').value = e.bairro || '';
+      document.getElementById('uf').value = e.uf || '';
+      document.getElementById('codigoIbge').value = e.codigoIbge || '';
+      cidadeInput.value = e.cidade || '';
+      cepStatus.textContent = e.codigoIbge
+        ? '✓ Endereço e código IBGE preenchidos. Confira o número e complemento.'
+        : '✓ Endereço preenchido, mas não veio o código IBGE — confira manualmente se for essencial.';
+      cepStatus.style.color = 'var(--primary)';
+    } catch (e) {
+      cepStatus.textContent = 'Erro de conexão ao buscar o CEP.';
+      cepStatus.style.color = 'var(--tax)';
+    } finally {
+      btnBuscarCep.disabled = false;
+    }
+  });
+</script>
+
+<%- include('partials/foot') %>

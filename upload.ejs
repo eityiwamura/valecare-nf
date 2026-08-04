@@ -1,0 +1,228 @@
+<%- include('partials/head', { title: 'Enviar planilha' }) %>
+
+<div class="page-header">
+  <div>
+    <h1>Enviar planilha de NFs</h1>
+    <p>Envie a planilha do mês — colunas obrigatórias: Cliente, CNPJ, Descrição e Valor (mesmo padrão para as duas empresas). Cidade e Simples Nacional são opcionais; se vierem, o sistema usa. Venc. também é opcional.</p>
+  </div>
+</div>
+
+<% if (erro) { %>
+  <div class="alert alert-error"><%= erro %></div>
+<% } %>
+<% if (sucesso) { %>
+  <div class="alert alert-success">
+    Planilha processada com sucesso! <%= sucesso.linhas %> nota(s) fiscal(is) calculada(s) e salva(s).
+    <a href="/lista?lote=<%= sucesso.lote %>" style="text-decoration: underline; font-weight: 700;">Ver notas deste lote →</a>
+  </div>
+<% } %>
+
+<div class="grid cols-2" style="align-items:start;">
+  <div class="card">
+    <form method="POST" action="/upload" enctype="multipart/form-data" id="upload-form">
+      <div class="field">
+        <label for="empresaId">Empresa emissora</label>
+        <select name="empresaId" id="empresaId" required>
+          <option value="">Selecione...</option>
+          <% empresas.forEach(function(e){ %>
+            <option value="<%= e.id %>" data-slug="<%= e.slug %>" data-iss="<%= configMap[e.id] %>"><%= e.nome %></option>
+          <% }) %>
+        </select>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="field">
+          <label for="issAliquota">Alíquota de ISS vigente (%)</label>
+          <input type="text" name="issAliquota" id="issAliquota" placeholder="Ex: 2,00" required />
+        </div>
+        <div class="field">
+          <label for="dataEmissao">Data de emissão do lote</label>
+          <input type="date" name="dataEmissao" id="dataEmissao" value="<%= hoje %>" required />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Planilha (.xlsx)</label>
+        <div class="upload-drop" id="drop-zone">
+          <div class="icon">📄</div>
+          <div>Arraste o arquivo aqui ou clique para selecionar</div>
+          <div class="filename" id="filename"></div>
+        </div>
+        <input type="file" name="planilha" id="planilha" accept=".xlsx,.xls" style="display:none;" required />
+      </div>
+
+      <div class="field">
+        <label>Código de serviço deste lote <span style="font-weight:400; color:var(--text-muted);">(opcional — aplica o mesmo código a todas as NFs desta planilha)</span></label>
+        <select name="codigoServico" id="codigoServico" disabled>
+          <option value="">Selecione a empresa primeiro...</option>
+        </select>
+        <div style="font-size:12px; margin-top:6px;">
+          <a href="/codigos-servico" style="color:var(--primary); text-decoration:underline;">+ Cadastrar novo código</a>
+        </div>
+      </div>
+
+      <div class="grid cols-3">
+        <div class="field">
+          <label for="nbs">NBS</label>
+          <select name="nbs" id="nbs" disabled>
+            <option value="">Selecione o código de serviço primeiro...</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="indicadorOperacao">Indicador de operação</label>
+          <select name="indicadorOperacao" id="indicadorOperacao" disabled>
+            <option value="">Selecione o NBS primeiro...</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="classificacaoTributaria">Classificação tributária</label>
+          <select name="classificacaoTributaria" id="classificacaoTributaria" disabled>
+            <option value="">Selecione o indicador primeiro...</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" type="submit" style="width:100%; margin-top:8px;">Processar e calcular impostos</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">Regras aplicadas</h3>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      <strong>Valecare Medicina</strong> — clientes do Simples Nacional não pagam PIS/COFINS/CSLL,
+      mas pagam IRPJ normalmente. Pessoa Física é isenta de todos os quatro. Para os demais
+      clientes (Não), PIS é sempre calculado (0,65%); COFINS (3%) e CSLL (1%) só aparecem
+      na nota se a soma dos três (PIS+COFINS+CSLL) para o mesmo cliente (CNPJ), no mesmo
+      envio, ultrapassar R$10,00. O IRPJ (1,5%) segue o mesmo limite de R$10, mas avaliado
+      isoladamente.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      <strong>Valecare Engenharia</strong> — PIS, COFINS, CSLL e IRPJ sempre zerados.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      <strong>ISS (ambas)</strong> — só incide quando a cidade é Taubaté e o valor da nota é maior que R$600,00,
+      usando a alíquota informada acima.
+    </p>
+    <p style="font-size:13px; color:var(--text-muted); line-height:1.6;">
+      <strong>Código de serviço / NBS / Indicador / Classificação</strong> — se você não preencher aqui,
+      essas colunas saem em branco na exportação da planilha (formato NF_30). Se todas as NFs deste
+      lote usam o mesmo código de serviço, preencher aqui evita ter que editar nota por nota depois.
+    </p>
+  </div>
+</div>
+
+<script>
+  const CODIGOS_SERVICO = <%- JSON.stringify(codigos) %>;
+  const NBS_LIST = <%- JSON.stringify(nbsList) %>;
+  const INDICADORES = <%- JSON.stringify(indicadores) %>;
+  const CLASSIFICACOES = <%- JSON.stringify(classificacoes) %>;
+
+  const empresaSelect = document.getElementById('empresaId');
+  const issInput = document.getElementById('issAliquota');
+  const codigoSelect = document.getElementById('codigoServico');
+  const nbsSelect = document.getElementById('nbs');
+  const indicadorSelect = document.getElementById('indicadorOperacao');
+  const classificacaoSelect = document.getElementById('classificacaoTributaria');
+
+  function popularSelect(select, opcoes, placeholderVazio, placeholderPreenchido) {
+    if (!opcoes) {
+      select.innerHTML = `<option value="">${placeholderVazio}</option>`;
+      select.disabled = true;
+      return;
+    }
+    if (!opcoes.length) {
+      select.innerHTML = '<option value="">Nenhum cadastrado — cadastre em Códigos de Serviço</option>';
+      select.disabled = true;
+      return;
+    }
+    select.innerHTML = `<option value="">${placeholderPreenchido}</option>` +
+      opcoes.map(o => `<option value="${o.codigo}" data-id="${o.id}">${o.codigo}${o.descricao ? ' — ' + o.descricao : ''}</option>`).join('');
+    select.disabled = false;
+  }
+
+  function popularCodigos(empresaId) {
+    if (!empresaId) {
+      codigoSelect.innerHTML = '<option value="">Selecione a empresa primeiro...</option>';
+      codigoSelect.disabled = true;
+    } else {
+      const opcoes = CODIGOS_SERVICO.filter(c => String(c.empresa_id) === String(empresaId));
+      popularSelect(codigoSelect, opcoes, 'Selecione a empresa primeiro...', 'Nenhum (deixar em branco)');
+    }
+    popularSelect(nbsSelect, null, 'Selecione o código de serviço primeiro...');
+    popularSelect(indicadorSelect, null, 'Selecione o NBS primeiro...');
+    popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+  }
+
+  function popularNbs(codigoServicoId) {
+    if (!codigoServicoId) {
+      popularSelect(nbsSelect, null, 'Selecione o código de serviço primeiro...');
+    } else {
+      const opcoes = NBS_LIST.filter(n => String(n.codigo_servico_id) === String(codigoServicoId));
+      popularSelect(nbsSelect, opcoes, '', 'Nenhum (deixar em branco)');
+    }
+    popularSelect(indicadorSelect, null, 'Selecione o NBS primeiro...');
+    popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+  }
+
+  function popularIndicadores(nbsId) {
+    if (!nbsId) {
+      popularSelect(indicadorSelect, null, 'Selecione o NBS primeiro...');
+    } else {
+      const opcoes = INDICADORES.filter(i => String(i.nbs_id) === String(nbsId));
+      popularSelect(indicadorSelect, opcoes, '', 'Nenhum (deixar em branco)');
+    }
+    popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+  }
+
+  function popularClassificacoes(indicadorId) {
+    if (!indicadorId) {
+      popularSelect(classificacaoSelect, null, 'Selecione o indicador primeiro...');
+    } else {
+      const opcoes = CLASSIFICACOES.filter(c => String(c.indicador_operacao_id) === String(indicadorId));
+      popularSelect(classificacaoSelect, opcoes, '', 'Nenhum (deixar em branco)');
+    }
+  }
+
+  empresaSelect.addEventListener('change', () => {
+    const opt = empresaSelect.selectedOptions[0];
+    if (opt && opt.dataset.iss) issInput.value = Number(opt.dataset.iss).toLocaleString('pt-BR', {minimumFractionDigits:2});
+    popularCodigos(empresaSelect.value);
+  });
+  codigoSelect.addEventListener('change', () => {
+    const opt = codigoSelect.selectedOptions[0];
+    popularNbs(opt ? opt.dataset.id : null);
+  });
+  nbsSelect.addEventListener('change', () => {
+    const opt = nbsSelect.selectedOptions[0];
+    popularIndicadores(opt ? opt.dataset.id : null);
+  });
+  indicadorSelect.addEventListener('change', () => {
+    const opt = indicadorSelect.selectedOptions[0];
+    popularClassificacoes(opt ? opt.dataset.id : null);
+  });
+
+  popularCodigos(empresaSelect.value);
+
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('planilha');
+  const filenameEl = document.getElementById('filename');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) filenameEl.textContent = fileInput.files[0].name;
+  });
+  ['dragover', 'dragenter'].forEach(evt => dropZone.addEventListener(evt, (e) => {
+    e.preventDefault(); dropZone.classList.add('dragover');
+  }));
+  ['dragleave', 'drop'].forEach(evt => dropZone.addEventListener(evt, (e) => {
+    e.preventDefault(); dropZone.classList.remove('dragover');
+  }));
+  dropZone.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files[0]) {
+      fileInput.files = e.dataTransfer.files;
+      filenameEl.textContent = e.dataTransfer.files[0].name;
+    }
+  });
+</script>
+
+<%- include('partials/foot') %>
