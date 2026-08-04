@@ -104,11 +104,23 @@ router.get('/lista', async (req, res) => {
   const { rows: totalsRows } = await pool.query(totalsSql, params);
 
   const { rows: empresas } = await pool.query('SELECT * FROM empresas ORDER BY nome');
+  const { rows: configs } = await pool.query('SELECT * FROM configuracoes');
+  const { rows: codigos } = await pool.query('SELECT * FROM codigos_servico ORDER BY codigo');
+  const { rows: nbsList } = await pool.query('SELECT * FROM nbs ORDER BY codigo');
+  const { rows: indicadores } = await pool.query('SELECT * FROM indicadores_operacao ORDER BY codigo');
+  const { rows: classificacoes } = await pool.query('SELECT * FROM classificacoes_tributarias ORDER BY codigo');
+  const configMap = {};
+  configs.forEach((c) => { configMap[c.empresa_id] = c.iss_aliquota; });
 
   res.render('lista', {
     notas,
     totals: totalsRows[0],
     empresas,
+    configMap,
+    codigos,
+    nbsList,
+    indicadores,
+    classificacoes,
     filtros: { empresa, cliente, cidade, cnpj, simples, dataDe, dataAte },
     sort: sortKey,
     dir: sortDir.toLowerCase(),
@@ -363,6 +375,87 @@ router.post('/lista/exportar', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).send('Erro ao gerar a exportação.');
+  }
+});
+
+// Edita uma NF existente: recalcula os impostos dela (e do grupo cliente/dia,
+// tanto do estado antigo quanto do novo, caso o CNPJ ou a data mudem).
+router.post('/lista/:id/editar', async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const {
+      cliente, cnpj, cidade, simplesNacional, descricao, valor, vencimento, dataEmissao,
+      issAliquota, codigoServico, nbs, indicadorOperacao, classificacaoTributaria
+    } = req.body;
+
+    await client.query('BEGIN');
+
+    const { rows: nfRows } = await client.query('SELECT * FROM notas_fiscais WHERE id = $1 FOR UPDATE', [req.params.id]);
+    const nfAtual = nfRows[0];
+    if (!nfAtual) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ ok: false, erro: 'NF não encontrada.' });
+    }
+
+    const { rows: empresaRows } = await client.query('SELECT * FROM empresas WHERE id = $1', [nfAtual.empresa_id]);
+    const empresa = empresaRows[0];
+
+    if (!cliente) return res.status(400).json({ ok: false, erro: 'Informe o cliente.' });
+    const valorNum = parseFloat(String(valor).replace(/\./g, '').replace(',', '.'));
+    if (isNaN(valorNum) || valorNum <= 0) return res.status(400).json({ ok: false, erro: 'Informe um valor válido.' });
+    const aliquota = parseFloat(String(issAliquota).replace(',', '.'));
+    if (isNaN(aliquota) || aliquota < 0) return res.status(400).json({ ok: false, erro: 'Informe uma alíquota de ISS válida.' });
+
+    const cnpjLimpo = String(cnpj || '').replace(/\D/g, '');
+    const dataEmissaoFinal = dataEmissao || nfAtual.data_emissao;
+
+    const linha = { simplesNacional, cidade, cliente, cnpj: cnpjLimpo, descricao, vencimento: vencimento || null, valor: valorNum };
+    const bruto = calcularBrutoLinha(linha, empresa.slug, aliquota);
+
+    // Grupo antigo (antes da edição) - para recalcular o que ficar pra trás caso o CNPJ/data mudem
+    const grupoAntigo = { cnpjNorm: nfAtual.cnpj_norm, dataEmissao: nfAtual.data_emissao, empresaId: nfAtual.empresa_id };
+
+    await client.query(
+      `UPDATE notas_fiscais SET
+        cliente = $1, cnpj = $2, cnpj_norm = $3, cidade = $4, simples_nacional = $5, descricao = $6,
+        vencimento = $7, data_emissao = $8, valor = $9, pis_bruto = $10, cofins_bruto = $11,
+        csll_bruto = $12, irpj_bruto = $13, iss = $14, codigo_servico = $15, nbs = $16,
+        indicador_operacao = $17, classificacao_tributaria = $18
+       WHERE id = $19`,
+      [
+        cliente, cnpj || null, bruto.cnpjNorm, cidade, linha.simplesNacional, descricao,
+        linha.vencimento, dataEmissaoFinal, valorNum, bruto.pisBruto, bruto.cofinsBruto,
+        bruto.csllBruto, bruto.irpjBruto, bruto.iss, codigoServico || null, nbs || null,
+        indicadorOperacao || null, classificacaoTributaria || null, req.params.id
+      ]
+    );
+
+    const grupoNovo = { cnpjNorm: bruto.cnpjNorm, dataEmissao: dataEmissaoFinal, empresaId: nfAtual.empresa_id };
+    await recalcularGrupo(client, grupoNovo);
+
+    const grupoMudou = grupoAntigo.cnpjNorm !== grupoNovo.cnpjNorm || grupoAntigo.dataEmissao !== grupoNovo.dataEmissao;
+    if (grupoMudou && grupoAntigo.cnpjNorm) {
+      await recalcularGrupo(client, grupoAntigo);
+    }
+
+    if (!bruto.cnpjNorm) {
+      const valorLiquido = Math.round((valorNum - bruto.iss + Number.EPSILON) * 100) / 100;
+      await client.query('UPDATE notas_fiscais SET valor_liquido = $1 WHERE id = $2', [valorLiquido, req.params.id]);
+    }
+
+    const { rows: atualizada } = await client.query(
+      `SELECT n.*, e.nome AS empresa_nome FROM notas_fiscais n JOIN empresas e ON e.id = n.empresa_id WHERE n.id = $1`,
+      [req.params.id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ ok: true, nota: atualizada[0] });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ ok: false, erro: 'Erro ao salvar a NF: ' + err.message });
+  } finally {
+    client.release();
   }
 });
 

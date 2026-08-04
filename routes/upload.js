@@ -4,7 +4,7 @@ const pool = require('../db/pool');
 const { parsePlanilha } = require('../services/parser');
 const { calcularLoteBruto } = require('../services/calculo');
 const { recalcularGrupos } = require('../services/grupos');
-const { enriquecerClientesEmSegundoPlano } = require('../services/clientes');
+const { processarLoteEmSegundoPlano } = require('../services/clientes');
 
 const router = express.Router();
 const upload = multer({
@@ -121,13 +121,19 @@ router.post('/upload', upload.single('planilha'), async (req, res) => {
       await client.query('COMMIT');
       res.redirect(`/upload?ok=1&linhas=${calculadas.length}&lote=${loteId}`);
 
-      // A partir daqui a resposta já foi enviada. O enriquecimento do cadastro de
-      // clientes (endereço, código IBGE, regime tributário) continua em segundo
-      // plano - pode levar bastante tempo se a fonte estiver com limite de
-      // requisições, mas isso nunca deve travar o upload nem fazer a nota falhar.
+      // A partir daqui a resposta já foi enviada. A confirmação do cadastro de
+      // clientes (endereço, código IBGE e, principalmente, o regime tributário
+      // confirmado na Receita Federal) continua em segundo plano - pode levar
+      // bastante tempo se a fonte estiver com limite de requisições, mas isso
+      // nunca deve travar o upload. Assim que cada CNPJ é confirmado, as NFs
+      // desse lote são corrigidas e recalculadas com o regime certo (mesmo
+      // comportamento do lançamento manual, que já usa a Receita como fonte).
       if (cnpjsUnicos.length) {
-        enriquecerClientesEmSegundoPlano(pool, cnpjsUnicos, `lote ${loteId}`).catch((err) => {
-          console.error(`[lote ${loteId}] Erro inesperado no enriquecimento em segundo plano:`, err);
+        processarLoteEmSegundoPlano(pool, {
+          loteId, empresaId: empresa.id, empresaSlug: empresa.slug,
+          dataEmissao: dataEmissaoFinal, issAliquota: aliquota, cnpjsUnicos
+        }, `lote ${loteId}`).catch((err) => {
+          console.error(`[lote ${loteId}] Erro inesperado no processamento em segundo plano:`, err);
         });
       }
     } catch (err) {

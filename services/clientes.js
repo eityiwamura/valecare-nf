@@ -1,4 +1,5 @@
-const { onlyDigits } = require('./calculo');
+const { onlyDigits, calcularBrutoLinha } = require('./calculo');
+const { recalcularGrupo } = require('./grupos');
 
 const BRASIL_API_BASE = 'https://brasilapi.com.br/api/cnpj/v1';
 const OPENCNPJ_BASE = 'https://api.opencnpj.org';
@@ -357,28 +358,71 @@ async function buscarClienteGenerico(pool, documentoRaw) {
 }
 
 /**
- * Enriquece o cadastro local (endereço, código IBGE, regime tributário) para uma
- * lista de CNPJs, um a um com um respiro entre eles - pensada para rodar em
- * segundo plano (sem prender uma resposta HTTP), já que cada CNPJ pode levar
- * bastante tempo se a fonte estiver com limite de requisições. Nunca desiste
- * por causa de limite de requisições - só quando o CNPJ realmente não existe
- * ou depois de esgotar todas as tentativas de todas as fontes.
+ * Depois de confirmar o regime tributário de um CNPJ na Receita Federal, atualiza
+ * as NFs desse lote que usam esse CNPJ para refletir o regime confirmado (em vez
+ * do que veio na planilha) e recalcula os impostos delas. É isso que faz o upload
+ * em lote se comportar igual ao lançamento manual, onde o regime sempre vem da
+ * consulta à Receita, não só do texto (às vezes ausente ou impreciso) da planilha.
  */
-async function enriquecerClientesEmSegundoPlano(pool, cnpjsUnicos, contexto) {
-  const rotulo = contexto || 'lote';
+async function sincronizarRegimeNfsDoLote(pool, { loteId, cnpjNorm, empresaId, empresaSlug, dataEmissao, issAliquota, regimeConfirmado }) {
+  if (!regimeConfirmado) return; // nunca sobrescreve com algo que a fonte não confirmou
+
+  const { rows: nfs } = await pool.query(
+    'SELECT * FROM notas_fiscais WHERE lote_id = $1 AND cnpj_norm = $2',
+    [loteId, cnpjNorm]
+  );
+  if (!nfs.length) return;
+
+  for (const nf of nfs) {
+    const linha = {
+      simplesNacional: regimeConfirmado,
+      cidade: nf.cidade,
+      cliente: nf.cliente,
+      cnpj: nf.cnpj,
+      descricao: nf.descricao,
+      valor: Number(nf.valor)
+    };
+    const bruto = calcularBrutoLinha(linha, empresaSlug, issAliquota);
+    await pool.query(
+      `UPDATE notas_fiscais SET simples_nacional = $1, pis_bruto = $2, cofins_bruto = $3, csll_bruto = $4, irpj_bruto = $5, iss = $6
+       WHERE id = $7`,
+      [regimeConfirmado, bruto.pisBruto, bruto.cofinsBruto, bruto.csllBruto, bruto.irpjBruto, bruto.iss, nf.id]
+    );
+  }
+
+  await recalcularGrupo(pool, { cnpjNorm, dataEmissao, empresaId });
+}
+
+/**
+ * Roda em segundo plano depois de um upload: para cada CNPJ único do lote,
+ * confirma o cadastro (endereço + regime tributário) na Receita Federal e, assim
+ * que confirmado, corrige e recalcula as NFs desse lote que usam esse CNPJ - sem
+ * prender a resposta HTTP do upload, e sem desistir por causa de limite de
+ * requisições (cada consulta já tenta várias vezes sozinha).
+ */
+async function processarLoteEmSegundoPlano(pool, { loteId, empresaId, empresaSlug, dataEmissao, issAliquota, cnpjsUnicos }, contexto) {
+  const rotulo = contexto || `lote ${loteId}`;
   let ok = 0;
   let falhas = 0;
+  let regimesCorrigidos = 0;
   for (const cnpj of cnpjsUnicos) {
     try {
-      await resolverCliente(pool, cnpj);
+      const resolvido = await resolverCliente(pool, cnpj);
+      if (resolvido.simples_nacional) {
+        await sincronizarRegimeNfsDoLote(pool, {
+          loteId, cnpjNorm: cnpj, empresaId, empresaSlug, dataEmissao, issAliquota,
+          regimeConfirmado: resolvido.simples_nacional
+        });
+        regimesCorrigidos++;
+      }
       ok++;
     } catch (err) {
       falhas++;
-      console.warn(`[${rotulo}] Não foi possível enriquecer o cadastro do CNPJ ${cnpj}: ${err.message}`);
+      console.warn(`[${rotulo}] Não foi possível enriquecer/confirmar o CNPJ ${cnpj}: ${err.message}`);
     }
     await esperar(500); // respiro entre CNPJs, além da espera crescente já embutida em cada consulta
   }
-  console.log(`[${rotulo}] Enriquecimento de clientes concluído: ${ok} ok, ${falhas} falha(s) de ${cnpjsUnicos.length}.`);
+  console.log(`[${rotulo}] Processamento em segundo plano concluído: ${ok} ok, ${falhas} falha(s) de ${cnpjsUnicos.length}, ${regimesCorrigidos} regime(s) confirmado(s) e aplicado(s) às NFs.`);
 }
 
 module.exports = {
@@ -389,5 +433,5 @@ module.exports = {
   buscarEnderecoPorCep,
   salvarCliente,
   salvarClienteFormulario,
-  enriquecerClientesEmSegundoPlano
+  processarLoteEmSegundoPlano
 };
