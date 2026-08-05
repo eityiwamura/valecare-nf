@@ -320,13 +320,13 @@ async function resolverCliente(pool, cnpjRaw) {
   }
 
   const local = await buscarClienteLocal(pool, cnpj);
-  if (local && local.codigo_ibge && local.simples_nacional) {
+  if (local && local.codigo_ibge && local.simples_nacional && local.cidade) {
     return { ...local, fonte: 'cadastro' };
   }
 
-  // Cliente novo, ou já cadastrado com dado incompleto (sem código IBGE ou sem
-  // confirmar o regime tributário) -> tenta consultar de novo, dando outra
-  // chance de vir da BrasilAPI (que confirma o Simples) em vez do fallback.
+  // Cliente novo, ou já cadastrado com dado incompleto (sem código IBGE, sem
+  // cidade, ou sem confirmar o regime tributário) -> tenta consultar de novo,
+  // dando outra chance de vir da BrasilAPI (que confirma o Simples) em vez do fallback.
   const dadosApi = await buscarClienteAPI(cnpj);
   const salvo = await salvarCliente(pool, cnpj, dadosApi, 'api', 'cnpj');
   return { ...salvo, fonte: local ? 'cadastro' : 'api', regimeConhecido: dadosApi.regimeConhecido };
@@ -358,15 +358,15 @@ async function buscarClienteGenerico(pool, documentoRaw) {
 }
 
 /**
- * Depois de confirmar o regime tributário de um CNPJ na Receita Federal, atualiza
- * as NFs desse lote que usam esse CNPJ para refletir o regime confirmado (em vez
- * do que veio na planilha) e recalcula os impostos delas. É isso que faz o upload
- * em lote se comportar igual ao lançamento manual, onde o regime sempre vem da
- * consulta à Receita, não só do texto (às vezes ausente ou impreciso) da planilha.
+ * Depois de confirmar os dados de um CNPJ na Receita Federal, atualiza as NFs
+ * desse lote que usam esse CNPJ: aplica o regime tributário confirmado (sempre,
+ * mesmo comportamento do lançamento manual) e preenche a cidade quando a NF
+ * não trouxe uma da planilha (sem sobrescrever uma cidade que o usuário já
+ * informou explicitamente) - e recalcula os impostos (incluindo ISS) depois
+ * disso. É isso que faz o upload em lote se comportar igual ao lançamento
+ * manual, onde esses dados sempre vêm da consulta à Receita.
  */
-async function sincronizarRegimeNfsDoLote(pool, { loteId, cnpjNorm, empresaId, empresaSlug, dataEmissao, issAliquota, regimeConfirmado }) {
-  if (!regimeConfirmado) return; // nunca sobrescreve com algo que a fonte não confirmou
-
+async function sincronizarNfsDoLote(pool, { loteId, cnpjNorm, empresaId, empresaSlug, dataEmissao, issAliquota, regimeConfirmado, cidadeConfirmada }) {
   const { rows: nfs } = await pool.query(
     'SELECT * FROM notas_fiscais WHERE lote_id = $1 AND cnpj_norm = $2',
     [loteId, cnpjNorm]
@@ -374,9 +374,14 @@ async function sincronizarRegimeNfsDoLote(pool, { loteId, cnpjNorm, empresaId, e
   if (!nfs.length) return;
 
   for (const nf of nfs) {
+    const regimeFinal = regimeConfirmado || nf.simples_nacional;
+    const cidadeFinal = nf.cidade || cidadeConfirmada || '';
+
+    if (regimeFinal === nf.simples_nacional && cidadeFinal === nf.cidade) continue; // nada mudou, não recalcula à toa
+
     const linha = {
-      simplesNacional: regimeConfirmado,
-      cidade: nf.cidade,
+      simplesNacional: regimeFinal,
+      cidade: cidadeFinal,
       cliente: nf.cliente,
       cnpj: nf.cnpj,
       descricao: nf.descricao,
@@ -384,9 +389,10 @@ async function sincronizarRegimeNfsDoLote(pool, { loteId, cnpjNorm, empresaId, e
     };
     const bruto = calcularBrutoLinha(linha, empresaSlug, issAliquota);
     await pool.query(
-      `UPDATE notas_fiscais SET simples_nacional = $1, pis_bruto = $2, cofins_bruto = $3, csll_bruto = $4, irpj_bruto = $5, iss = $6
-       WHERE id = $7`,
-      [regimeConfirmado, bruto.pisBruto, bruto.cofinsBruto, bruto.csllBruto, bruto.irpjBruto, bruto.iss, nf.id]
+      `UPDATE notas_fiscais SET simples_nacional = $1, cidade = $2, pis_bruto = $3, cofins_bruto = $4,
+        csll_bruto = $5, irpj_bruto = $6, iss = $7
+       WHERE id = $8`,
+      [regimeFinal, cidadeFinal, bruto.pisBruto, bruto.cofinsBruto, bruto.csllBruto, bruto.irpjBruto, bruto.iss, nf.id]
     );
   }
 
@@ -404,16 +410,17 @@ async function processarLoteEmSegundoPlano(pool, { loteId, empresaId, empresaSlu
   const rotulo = contexto || `lote ${loteId}`;
   let ok = 0;
   let falhas = 0;
-  let regimesCorrigidos = 0;
+  let corrigidos = 0;
   for (const cnpj of cnpjsUnicos) {
     try {
       const resolvido = await resolverCliente(pool, cnpj);
-      if (resolvido.simples_nacional) {
-        await sincronizarRegimeNfsDoLote(pool, {
+      if (resolvido.simples_nacional || resolvido.cidade) {
+        await sincronizarNfsDoLote(pool, {
           loteId, cnpjNorm: cnpj, empresaId, empresaSlug, dataEmissao, issAliquota,
-          regimeConfirmado: resolvido.simples_nacional
+          regimeConfirmado: resolvido.simples_nacional,
+          cidadeConfirmada: resolvido.cidade
         });
-        regimesCorrigidos++;
+        corrigidos++;
       }
       ok++;
     } catch (err) {
@@ -422,7 +429,7 @@ async function processarLoteEmSegundoPlano(pool, { loteId, empresaId, empresaSlu
     }
     await esperar(500); // respiro entre CNPJs, além da espera crescente já embutida em cada consulta
   }
-  console.log(`[${rotulo}] Processamento em segundo plano concluído: ${ok} ok, ${falhas} falha(s) de ${cnpjsUnicos.length}, ${regimesCorrigidos} regime(s) confirmado(s) e aplicado(s) às NFs.`);
+  console.log(`[${rotulo}] Processamento em segundo plano concluído: ${ok} ok, ${falhas} falha(s) de ${cnpjsUnicos.length}, ${corrigidos} CNPJ(s) com regime e/ou cidade aplicados às NFs.`);
 }
 
 module.exports = {

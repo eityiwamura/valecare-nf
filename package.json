@@ -9,7 +9,8 @@
     "migrate": "node scripts/migrate.js",
     "lotes:listar": "node scripts/gerenciar-lotes.js listar",
     "lotes:excluir": "node scripts/gerenciar-lotes.js excluir",
-    "banco:zerar": "node scripts/zerar-banco.js"
+    "banco:zerar": "node scripts/zerar-banco.js",
+    "clientes:reconciliar": "node scripts/reconciliar-clientes.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

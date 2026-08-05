@@ -357,7 +357,8 @@ router.post('/lista/exportar', async (req, res) => {
       `SELECT n.*, e.slug AS empresa_slug,
               c.logradouro AS cliente_logradouro, c.numero AS cliente_numero,
               c.complemento AS cliente_complemento, c.bairro AS cliente_bairro,
-              c.cep AS cliente_cep, c.uf AS cliente_uf, c.codigo_ibge AS cliente_codigo_ibge
+              c.cep AS cliente_cep, c.uf AS cliente_uf, c.codigo_ibge AS cliente_codigo_ibge,
+              c.cidade AS cliente_cidade
        FROM notas_fiscais n
        JOIN empresas e ON e.id = n.empresa_id
        LEFT JOIN clientes c ON c.cnpj = n.cnpj_norm

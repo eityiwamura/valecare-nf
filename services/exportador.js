@@ -48,6 +48,17 @@ function valorOuVazio(n) {
 }
 
 /**
+ * Igual a valorOuVazio, mas nunca deixa em branco: quando o valor é zero/vazio,
+ * retorna 0 em vez de ''. Usado nas colunas de retenção da Valecare Medicina,
+ * a pedido do usuário (o sistema que recebe a planilha não deve receber células
+ * vazias nesses campos específicos).
+ */
+function valorOuZero(n) {
+  const num = Number(n);
+  return Number.isFinite(num) ? num : 0;
+}
+
+/**
  * Monta a linha de exportação de uma NF no formato do modelo.
  * @param {Object} nf - linha vinda da query (join notas_fiscais + clientes)
  */
@@ -64,7 +75,7 @@ function montarLinha(nf, isMedicina) {
     Endereco_Complemento: nf.cliente_complemento || '',
     Endereco_Bairro: nf.cliente_bairro || '',
     Endereco_Cidade_Codigo: comoNumeroOuTexto(nf.cliente_codigo_ibge),
-    Endereco_Cidade_Nome: nf.cidade || '',
+    Endereco_Cidade_Nome: nf.cidade || nf.cliente_cidade || '',
     Endereco_Estado: nf.cliente_uf || '',
     Descricao: nf.descricao || '',
     IBSCBS_Indicador_Operacao: comoTexto(nf.indicador_operacao),
@@ -79,12 +90,12 @@ function montarLinha(nf, isMedicina) {
     return {
       ...base,
       Retencao_IR: valorOuVazio(nf.irpj),
-      Retencao_PIS: valorOuVazio(nf.pis),
-      Retencao_COFINS: valorOuVazio(nf.cofins),
-      Retencao_CSLL: valorOuVazio(nf.csll),
-      Retencao_INSS: '',
-      Retencao_ISS: valorOuVazio(nf.iss),
-      Retencao_OUTROS: '',
+      Retencao_PIS: valorOuZero(nf.pis),
+      Retencao_COFINS: valorOuZero(nf.cofins),
+      Retencao_CSLL: valorOuZero(nf.csll),
+      Retencao_INSS: 0,
+      Retencao_ISS: valorOuZero(nf.iss),
+      Retencao_OUTROS: 0,
       Valor_Deducoes: '',
       Valor_Recebido: ''
     };
